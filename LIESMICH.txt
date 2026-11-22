@@ -1,4 +1,4 @@
-E3DC Farm 0.1 für IP-Symcon 9.0
+E3DC Farm 0.2 für IP-Symcon 9.0
 
 Installation
 1. Auf dem Rechner, auf dem der IP-Symcon-Dienst läuft, den Ordner
@@ -29,8 +29,19 @@ Anzeigen und Grenzen
   Die Slot-Erkennung ermittelt kein Wallbox-Modell.
 - Bei Kommunikationsfehlern bleiben die zuletzt empfangenen Werte
   sichtbar. „Letzte erfolgreiche Abfrage“ zeigt ihren Zeitstand.
-- Version 0.1 sendet ausschließlich Modbus-Leseanfragen.
+- Version 0.2 sendet ausschließlich Modbus-Leseanfragen im
+  E3/DC Simple Mode. Optionale Detailgruppen stehen als JSON
+  in je einer Stringvariablen. Geräteinformationen und die bisherigen
+  Leistungswerte sind separate Variablen.
+- „Nicht verfügbare Daten“ führt fehlgeschlagene Abfragen pro Gruppe auf.
+  Leere Detailgruppen werden als {} angezeigt. Falls Geräteinformationen
+  nicht erneut gelesen werden können, bleiben ihre letzten Werte sichtbar.
+- Firmwareabhängige Felder, Leistungsmesser und Wechselrichter-Indizes
+  können je Gerät fehlen. Gemeldete Nullwerte optionaler Indizes
+  beweisen nicht, dass die betreffende Hardware installiert ist.
+- Autarkie und Eigenverbrauch werden als gepackter Rohwert angezeigt,
+  weil V2.80 die Reihenfolge der beiden Bytes nicht eindeutig benennt.
   Batterie- und Wallbox-Steuerung sind noch nicht implementiert.
 
 Registerreferenz
-https://support.efriends.at/hc/de/article_attachments/28091783524509
+E3/DC Modbus/TCP-Schnittstelle, V2.80, Abschnitte 3.1 und 4.

@@ -4,6 +4,16 @@ declare(strict_types=1);
 
 class E3DCOne extends IPSModule
 {
+    private const EXTRA_GROUPS = [
+        'DCStrings' => 'PV-Strings',
+        'PowerMeters' => 'Leistungsmesser',
+        'Inverters' => 'Wechselrichter je Index',
+        'BatteryDetails' => 'Batteriegrenzen und Speicherenergie',
+        'RemoteStatus' => 'Status der Fernsteuerung',
+        'WallboxDetails' => 'Wallbox-Slots (Details)',
+        'ReadNotes' => 'Nicht verfügbare Daten'
+    ];
+
     private const POWER = [
         'PV' => 'PV-Leistung (W)',
         'Battery' => 'Batterieleistung (W)',
@@ -33,6 +43,19 @@ class E3DCOne extends IPSModule
         $this->RegisterVariableString('Wallboxes', 'Wallbox-Erkennung', '', 12);
         $this->RegisterVariableInteger('LastSuccess', 'Letzte erfolgreiche Abfrage', '~UnixTimestamp', 13);
         $this->RegisterVariableString('DataStatus', 'Datenstatus', '', 14);
+        $this->RegisterVariableString('Manufacturer', 'Hersteller', '', 15);
+        $this->RegisterVariableString('Model', 'Modell', '', 16);
+        $this->RegisterVariableString('Serial', 'Seriennummer', '', 17);
+        $this->RegisterVariableString('Firmware', 'Firmware-Release', '', 18);
+        $this->RegisterVariableString('ModbusVersion', 'Modbus-Firmware-Version', '', 19);
+        $this->RegisterVariableInteger('RegisterCount', 'Gemeldete Registeranzahl', '', 20);
+        $this->RegisterVariableInteger('Emergency', 'Notstromstatus (Rohwert)', '', 21);
+        $this->RegisterVariableString('EfficiencyRaw', 'Autarkie und Eigenverbrauch (Register 40082)', '', 22);
+        $this->RegisterVariableString('EMSFlags', 'EMS-Status (Details)', '', 23);
+        $position = 24;
+        foreach (self::EXTRA_GROUPS as $ident => $label) {
+            $this->RegisterVariableString($ident, $label, '', $position++);
+        }
     }
 
     public function ApplyChanges()
@@ -73,24 +96,13 @@ class E3DCOne extends IPSModule
                     throw new RuntimeException('E3/DC Simple Mode wurde nicht erkannt.');
                 }
                 $registers = $this->readRegisters($socket, $unit, 2, 40068, 18);
-                $wallboxes = 'Abfrage deaktiviert';
-                if ($this->ReadPropertyBoolean('ReadWallbox')) {
-                    $wallboxes = $this->readWallboxStatus($socket, $unit);
-                }
+                $this->publishCore($registers);
+                $this->SetValue('LastSuccess', time());
+                $this->readDetails($socket, $unit);
             } finally {
                 fclose($socket);
             }
 
-            $index = 0;
-            foreach (self::POWER as $ident => $label) {
-                $low = $registers[$index++];
-                $high = $registers[$index++];
-                $this->SetValue($ident, ($high >= 32768 ? $high - 65536 : $high) * 65536 + $low);
-            }
-            $this->SetValue('SOC', $registers[15]);
-            $this->SetValue('EMS', $registers[17]);
-            $this->SetValue('Wallboxes', $wallboxes);
-            $this->SetValue('LastSuccess', time());
             $this->SetValue('DataStatus', 'Messwerte aktualisiert');
             $this->SetStatus(102);
         } catch (RuntimeException $error) {
@@ -101,23 +113,179 @@ class E3DCOne extends IPSModule
         }
     }
 
-    private function readWallboxStatus($socket, int $unit): string
+    private function publishCore(array $registers): void
     {
-        try {
-            $states = $this->readRegisters($socket, $unit, 3, 40088, 8);
-        } catch (RuntimeException $error) {
-            return 'Wallbox-Abfrage fehlgeschlagen. ' . $error->getMessage();
+        $index = 0;
+        foreach (self::POWER as $ident => $label) {
+            $this->SetValue($ident, $this->signed32($registers, $index));
+            $index += 2;
         }
+        $this->SetValue('SOC', $registers[15]);
+        $this->SetValue('Emergency', $registers[16]);
+        $this->SetValue('EfficiencyRaw', sprintf('0x%04X', $registers[14]));
+        $ems = $registers[17];
+        $this->SetValue('EMS', $ems);
+        $flags = [];
+        foreach (['Laden gesperrt', 'Entladen gesperrt', 'Notstrom möglich',
+            'Wetterbasiertes Laden', 'Einspeisung abgeregelt', 'Ladesperrzeit',
+            'Entladesperrzeit'] as $bit => $label) {
+            $flags[$label] = ($ems & (1 << $bit)) !== 0;
+        }
+        $this->publishJson('EMSFlags', $flags);
+    }
+
+    private function readDetails($socket, int $unit): void
+    {
+        $transaction = 3;
+        $notes = [];
+        $connectionUsable = true;
+        $read = function (string $label, int $start, int $count) use ($socket, $unit, &$transaction, &$notes, &$connectionUsable): ?array {
+            if (!$connectionUsable) {
+                $notes[$label] = 'Nach Verbindungsfehler übersprungen.';
+                return null;
+            }
+            // The manufacturer recommends at most ten requests per second.
+            usleep(110000);
+            try {
+                return $this->readRegisters($socket, $unit, $transaction++, $start, $count);
+            } catch (RuntimeException $error) {
+                $notes[$label] = $error->getMessage();
+                $connectionUsable = str_starts_with($error->getMessage(), 'Modbus-Ausnahme ');
+                return null;
+            }
+        };
+
+        $wallboxes = [];
         $summary = [];
-        foreach ($states as $slot => $state) {
-            if (($state & 1) === 0) {
+        $wallboxStatus = 'Abfrage deaktiviert';
+        if ($this->ReadPropertyBoolean('ReadWallbox')) {
+            $values = $read('Wallbox-Slots', 40088, 8);
+            $wallboxStatus = $values === null ? 'Wallbox-Abfrage fehlgeschlagen' : 'Kein Wallbox-Slot verfügbar';
+            foreach ($values ?? [] as $slot => $state) {
+                $available = ($state & 1) !== 0;
+                $details = ['Verfügbar' => $available, 'Rohwert' => $state];
+                if ($available) {
+                    $details += [
+                        'Betriebsart' => ($state & 2) !== 0 ? 'Solarbetrieb' : 'Mischbetrieb',
+                        'Laden freigegeben' => ($state & 4) === 0,
+                        'Auto lädt' => ($state & 8) !== 0,
+                        'Fahrzeug angeschlossen' => ($state & 32) !== 0,
+                        'Aktive Phasen laut efy-Status' => ($state & 4096) !== 0 ? 1 : 3
+                    ];
+                    $charging = $details['Auto lädt'] ? 'lädt' : 'lädt nicht';
+                    $summary[] = "Slot $slot: " . $details['Betriebsart'] . ", $charging";
+                }
+                $wallboxes['Slot ' . $slot] = $details;
+            }
+        }
+        $this->SetValue('Wallboxes', $summary === [] ? $wallboxStatus : implode(' | ', $summary));
+        $this->publishJson('WallboxDetails', $wallboxes);
+
+        $identity = $read('Geräteinformationen', 40002, 66);
+        if ($identity !== null) {
+            foreach (['Manufacturer', 'Model', 'Serial', 'Firmware'] as $index => $ident) {
+                $fields = array_slice($identity, 2 + 16 * $index, 16);
+                $this->SetValue($ident, trim(explode("\0", pack('n*', ...$fields), 2)[0]));
+            }
+            $this->SetValue('ModbusVersion', sprintf('%d.%d', $identity[0] >> 8, $identity[0] & 255));
+            $this->SetValue('RegisterCount', $identity[1]);
+        }
+
+        $strings = $read('PV-Strings', 40096, 9);
+        $stringData = [];
+        if ($strings !== null) {
+            for ($i = 0; $i < 2; $i++) {
+                $stringData['String ' . ($i + 1)] = [
+                    'Spannung (V)' => $strings[$i],
+                    'Strom (A)' => $strings[3 + $i] / 100,
+                    'Leistung (W)' => $strings[6 + $i]
+                ];
+            }
+        }
+        $this->publishJson('DCStrings', $stringData);
+
+        $meters = $read('Leistungsmesser und SG Ready', 40105, 33);
+        $meter32 = $read('32-Bit-Phasenleistung', 40138, 48);
+        $meterData = [];
+        if ($meters !== null) {
+            $meterData['SG Ready (Rohwert)'] = $meters[32];
+            for ($i = 0; $i < 8; $i++) {
+                $entry = ['Typ' => $meters[4 * $i]];
+                for ($phase = 0; $phase < 3; $phase++) {
+                    $entry['L' . ($phase + 1) . ' (W)'] = $meter32 === null
+                        ? $this->signed16($meters[4 * $i + 1 + $phase])
+                        : $this->signed32($meter32, 6 * $i + 2 * $phase);
+                }
+                $meterData['Index ' . $i] = $entry;
+            }
+        }
+        $this->publishJson('PowerMeters', $meterData);
+
+        $battery = $read('Batteriegrenzen und Speicherenergie', 40202, 8);
+        $batteryData = [];
+        if ($battery !== null) {
+            foreach (['Max. Ladeleistung (W)', 'Max. Entladeleistung (W)',
+                'Verbleibende Energie (Wh)', 'Max. speicherbare Energie (Wh)'] as $index => $label) {
+                $batteryData[$label] = $this->signed32($battery, 2 * $index);
+            }
+        }
+        $this->publishJson('BatteryDetails', $batteryData);
+
+        $remote = [];
+        foreach ([40186 => 'Zuletzt geschriebene Einspeisegrenze', 40188 => 'Leistungsabgabe bereit',
+            40194 => 'Wirkleistungs-Timeout (s)', 40196 => 'Blindleistungs-Timeout (s)',
+            40199 => 'Batterie-Fernsteuerung deaktivieren (Rohwert)',
+            40200 => 'Wechselrichter-Modusvorgabe', 40201 => 'Wechselrichter-Betriebsmodus'] as $address => $label) {
+            $values = $read($label, $address, $address === 40186 ? 2 : 1);
+            if ($values !== null) {
+                $remote[$label] = $address === 40186 ? $this->signed32($values, 0) : $values[0];
+            }
+        }
+        $this->publishJson('RemoteStatus', $remote);
+
+        $inverters = [];
+        for ($index = 0; $index < 8; $index++) {
+            $label = 'Wechselrichter ' . $index;
+            $values = $read($label, 41000 + 34 * $index, 34);
+            if ($values === null) {
                 continue;
             }
-            $mode = ($state & 2) !== 0 ? 'Solarbetrieb' : 'Mischbetrieb';
-            $charging = ($state & 8) !== 0 ? 'lädt' : 'lädt nicht';
-            $summary[] = "Slot $slot: $mode, $charging";
+            $entry = ['Frequenz L1 (Hz)' => $this->signed16($values[24]) / 100];
+            for ($i = 0; $i < 3; $i++) {
+                $phase = 'L' . ($i + 1);
+                $entry[$phase] = [
+                    'Scheinleistung (VA)' => $this->signed32($values, 2 * $i),
+                    'Wirkleistung (W)' => $this->signed32($values, 6 + 2 * $i),
+                    'Blindleistung (var)' => $this->signed32($values, 12 + 2 * $i),
+                    'AC-Spannung (V)' => $this->signed16($values[18 + $i]) / 10,
+                    'AC-Strom (A)' => $this->signed16($values[21 + $i]) / 100
+                ];
+                if ($i < 2) {
+                    $entry[$phase]['DC-Leistung (W)'] = $this->signed16($values[25 + $i]);
+                    $entry[$phase]['DC-Spannung (V)'] = $this->signed16($values[28 + $i]) / 10;
+                    $entry[$phase]['DC-Strom (A)'] = $this->signed16($values[31 + $i]) / 100;
+                }
+            }
+            $inverters[$label] = $entry;
         }
-        return $summary === [] ? 'Kein Wallbox-Slot verfügbar' : implode(' | ', $summary);
+        $this->publishJson('Inverters', $inverters);
+
+        $this->publishJson('ReadNotes', $notes);
+    }
+
+    private function signed16(int $value): int
+    {
+        return $value >= 32768 ? $value - 65536 : $value;
+    }
+
+    private function signed32(array $values, int $index): int
+    {
+        return $this->signed16($values[$index + 1]) * 65536 + $values[$index];
+    }
+
+    private function publishJson(string $ident, array $data): void
+    {
+        $this->SetValue($ident, json_encode((object) $data, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE));
     }
 
     private function readRegisters($socket, int $unit, int $transaction, int $register, int $count): array
