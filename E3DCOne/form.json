@@ -1,0 +1,54 @@
+{
+  "elements": [
+    {
+      "type": "ValidationTextBox",
+      "name": "Host",
+      "caption": "IP-Adresse des one"
+    },
+    {
+      "type": "NumberSpinner",
+      "name": "Port",
+      "caption": "Modbus-TCP-Port",
+      "minimum": 1,
+      "maximum": 65535
+    },
+    {
+      "type": "NumberSpinner",
+      "name": "Unit",
+      "caption": "Modbus Unit-ID",
+      "minimum": 0,
+      "maximum": 255
+    },
+    {
+      "type": "NumberSpinner",
+      "name": "Interval",
+      "caption": "Abfrageintervall (Sekunden)",
+      "minimum": 5,
+      "maximum": 3600
+    },
+    {
+      "type": "CheckBox",
+      "name": "ReadWallbox",
+      "caption": "Wallbox-Slots prüfen (am Farmmaster aktivieren)"
+    }
+  ],
+  "actions": [
+    {
+      "type": "Button",
+      "caption": "Jetzt auslesen",
+      "onClick": "E3DCF_Poll($id);"
+    }
+  ],
+  "status": [
+    {
+      "code": 104,
+      "icon": "inactive",
+      "caption": "IP-Adresse fehlt"
+    },
+    {
+      "code": 201,
+      "icon": "error",
+      "caption": "Abfrage fehlgeschlagen. Details stehen unter Datenstatus."
+    }
+  ]
+}

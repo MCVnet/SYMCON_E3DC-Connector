@@ -1,0 +1,13 @@
+{
+  "id": "{AAEF96D2-6F24-4FF9-9C9C-C7FECE2C1559}",
+  "name": "E3DCOne",
+  "type": 3,
+  "vendor": "E3/DC",
+  "aliases": [
+    "E3/DC one (Farm)"
+  ],
+  "parentRequirements": [],
+  "childRequirements": [],
+  "implemented": [],
+  "prefix": "E3DCF"
+}

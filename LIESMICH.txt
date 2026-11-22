@@ -1,0 +1,36 @@
+E3DC Farm 0.1 für IP-Symcon 9.0
+
+Installation
+1. Auf dem Rechner, auf dem der IP-Symcon-Dienst läuft, den Ordner
+   E3DCFarm aus dem ZIP in das Unterverzeichnis modules des
+   Symcon-Datenverzeichnisses kopieren. Den Datenpfad liefert das
+   Symcon-Skript: echo IPS_GetKernelDir();
+   Die Bibliothek liegt dann unter modules/E3DCFarm/library.json.
+2. IP-Symcon-Dienst neu starten. Zweimal die Instanz
+   „E3/DC one (Farm)“ anlegen: einmal für den Farmmaster und einmal
+   für den zweiten one.
+3. Auf beiden Geräten Modbus/TCP im E3/DC Simple Mode für den
+   Zugriff aus dem lokalen Netzwerk aktivieren. Pro Instanz die
+   passende IP-Adresse, den Port und die Unit-ID eintragen.
+   Voreinstellungen: Port 502, Unit-ID 1, Abfrage alle 15 Sekunden.
+4. Am Farmmaster „Wallbox-Slots prüfen“ aktivieren. Änderungen
+   übernehmen, dann „Jetzt auslesen“ wählen. Unter „Datenstatus“
+   steht das Abfrageergebnis, unter „Wallbox-Erkennung“ das
+   separate Ergebnis der Wallbox-Abfrage.
+
+Anzeigen und Grenzen
+- Die Leistungswerte entsprechen der Sicht des jeweiligen Geräts.
+  Vor einer Verwendung als Farmwert mit der Farming-Ansicht im
+  E3/DC-Portal vergleichen. Hausverbrauch und Netzleistung nicht
+  über beide Geräte addieren.
+- Netzleistung unter null bedeutet Einspeisung. Batterieleistung
+  unter null bedeutet Entladung.
+- Ein Wallbox-Slot meldet Betriebsart und ob ein Auto lädt.
+  Die Slot-Erkennung ermittelt kein Wallbox-Modell.
+- Bei Kommunikationsfehlern bleiben die zuletzt empfangenen Werte
+  sichtbar. „Letzte erfolgreiche Abfrage“ zeigt ihren Zeitstand.
+- Version 0.1 sendet ausschließlich Modbus-Leseanfragen.
+  Batterie- und Wallbox-Steuerung sind noch nicht implementiert.
+
+Registerreferenz
+https://support.efriends.at/hc/de/article_attachments/28091783524509
