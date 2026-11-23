@@ -90,6 +90,7 @@ class E3DCOne extends IPSModule
         $this->RegisterPropertyInteger('CapacityFallbackWh', 0);
         $this->RegisterAttributeString('DailyTotals', '{}');
         $this->RegisterTimer('PollTimer', 0, 'E3DCF_Poll($_IPS["TARGET"]);');
+        $this->RegisterTimer('InitialPollTimer', 0, 'E3DCF_RunInitialPoll($_IPS["TARGET"]);');
 
         $this->maintainGroupedVariables();
     }
@@ -185,6 +186,7 @@ class E3DCOne extends IPSModule
         $this->setGroupedValue('AdditionalConsumerValid', false);
         $this->updateAdditionalConsumer(false);
         $this->publishExternalSystems();
+        $this->SetTimerInterval('InitialPollTimer', 0);
         $this->SetTimerInterval('PollTimer', 0);
         $this->SetTimerInterval('RscpSolarTimer', 0);
         $this->WriteAttributeInteger('RscpSolarReadAt', 0);
@@ -215,6 +217,7 @@ class E3DCOne extends IPSModule
             return;
         }
         $this->SetTimerInterval('PollTimer', max(5, min(3600, $this->ReadPropertyInteger('Interval'))) * 1000);
+        $this->SetTimerInterval('InitialPollTimer', 250);
         if ($this->ReadPropertyBoolean('ReadRscpSolar')) {
             $this->setGroupedValue('RscpSolarStatus', 'RSCP-Abfrage ausstehend');
             $this->SetTimerInterval('RscpSolarTimer', 60000);
@@ -518,7 +521,6 @@ if (!IPS_ApplyChanges($id)) {
     return;
 }
 SetValue($statusId, 'IP-Adressen übernommen: ' . implode(' und ', array_filter([$settings['Host'], $settings['SecondHost'] ?? ''])));
-E3DCF_Poll($id);
 PHP;
         $started = IPS_RunScriptTextEx($script, [
             'OneInstance' => $this->InstanceID,
@@ -749,6 +751,15 @@ PHP;
         } finally {
             fclose($socket);
         }
+    }
+
+    public function RunInitialPoll(): void
+    {
+        $this->runTimerPoll(function (): void {
+            $this->SetTimerInterval('InitialPollTimer', 0);
+            $this->pollMeasurements();
+            $this->refreshAccessoryTable();
+        });
     }
 
     public function Poll(): void
@@ -1151,6 +1162,19 @@ PHP;
     public function GetConfigurationForm(): string
     {
         $form = json_decode(file_get_contents(__DIR__ . '/form.json'), true, 512, JSON_THROW_ON_ERROR);
+        foreach ($form['elements'] as &$section) {
+            foreach ($section['items'] ?? [] as $index => $item) {
+                if (($item['name'] ?? '') === 'AccessoryOptions') {
+                    $section['items'][$index]['values'] = $this->accessoryTableRows();
+                }
+            }
+        }
+        unset($section);
+        return json_encode($form, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE);
+    }
+
+    private function accessoryTableRows(): array
+    {
         $root = @IPS_GetObjectIDByIdent('CategoryAccessories', $this->InstanceID);
         $rows = $this->accessorySettings() ?? [];
         $roles = [];
@@ -1182,15 +1206,13 @@ PHP;
                     ? 'Erkannt' : 'Zuletzt erkannt'
             ];
         }
-        foreach ($form['elements'] as &$section) {
-            foreach ($section['items'] ?? [] as $index => $item) {
-                if (($item['name'] ?? '') === 'AccessoryOptions') {
-                    $section['items'][$index]['values'] = array_values($rows);
-                }
-            }
-        }
-        unset($section);
-        return json_encode($form, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE);
+        return array_values($rows);
+    }
+
+    private function refreshAccessoryTable(): void
+    {
+        $this->UpdateFormField('AccessoryOptions', 'values',
+            json_encode($this->accessoryTableRows(), JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE));
     }
 
     private function decodeJsonArray(mixed $value): ?array
@@ -1249,6 +1271,7 @@ PHP;
         if ($settings === null || $names === null || ($root === false && array_filter($groups) === [])) {
             return;
         }
+        $firstDetection = $root === false;
         $root = $this->accessoryCategory($this->InstanceID, $ident, 'Zubehör und Messpunkte');
         IPS_SetPosition($root, 70);
         $current = [];
@@ -1287,6 +1310,9 @@ PHP;
                     SetValue($status, false);
                 }
             }
+        }
+        if ($firstDetection && $current !== []) {
+            $this->refreshAccessoryTable();
         }
     }
 
