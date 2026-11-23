@@ -62,6 +62,7 @@ class E3DCConnector extends IPSModule
         $this->RegisterPropertyString('ExternalSystems', '[]');
         $this->RegisterPropertyBoolean('ReadRscpSolar', false);
         $this->RegisterPropertyInteger('FarmRscpPort', 5034);
+        $this->RegisterPropertyInteger('DeviceRscpPort', 5033);
         $this->RegisterPropertyString('FarmRscpUser', 'local.user');
         $this->RegisterPropertyString('FarmRscpPassword', '');
         $this->RegisterPropertyString('FarmRscpKey', '');
@@ -129,6 +130,10 @@ class E3DCConnector extends IPSModule
         $this->maintainGroupedVariable('FarmBatterySOC', 'Farm-Batterieladezustand (%)', '', VARIABLETYPE_FLOAT);
         $this->maintainGroupedVariable('FarmBatteryPower', 'Farm-Batterieleistung (W)', '', VARIABLETYPE_INTEGER);
         $this->maintainGroupedVariable('FarmBatteryValid', 'Farm-Batteriewerte aktuell', '', VARIABLETYPE_BOOLEAN);
+        $this->maintainGroupedVariable('RscpCapacity', 'Spezifizierte Speicherkapazität per RSCP (kWh)', '', VARIABLETYPE_FLOAT);
+        $this->maintainGroupedVariable('RscpCapacityValid', 'RSCP-Speicherkapazität aktuell', '', VARIABLETYPE_BOOLEAN);
+        $this->maintainGroupedVariable('SecondRscpCapacity', 'Spezifizierte Speicherkapazität per RSCP (kWh)', '', VARIABLETYPE_FLOAT);
+        $this->maintainGroupedVariable('SecondRscpCapacityValid', 'RSCP-Speicherkapazität aktuell', '', VARIABLETYPE_BOOLEAN);
         $this->maintainGroupedVariable('BatteryCapacity', 'Speicherkapazität des one (kWh)', '', VARIABLETYPE_FLOAT);
         $this->maintainGroupedVariable('BatteryEnergy', 'Verbleibende Speicherenergie des one (kWh)', '', VARIABLETYPE_FLOAT);
         $this->maintainGroupedVariable('BatteryEnergyAboveReserve', 'Speicherenergie oberhalb der Reserve (kWh)', '', VARIABLETYPE_FLOAT);
@@ -199,6 +204,8 @@ class E3DCConnector extends IPSModule
         $this->publishSolarFallback();
         $this->setGroupedValue('FarmBatteryValid', false);
         $this->setGroupedValue('BatteryEnergyValid', false);
+        $this->setGroupedValue('RscpCapacityValid', false);
+        $this->setGroupedValue('SecondRscpCapacityValid', false);
         $this->setGroupedValue('OneEfficiencyValid', false);
         $this->setGroupedValue('FarmPowerValid', false);
         $this->setGroupedValue('SecondOneValid', false);
@@ -239,7 +246,7 @@ class E3DCConnector extends IPSModule
             'Storage' => ['Batterie und Speicher', [
                 'SOC', 'Battery',
                 'BatteryChargePower', 'BatteryDischargePower', 'BatteryCapacity', 'BatteryEnergy',
-                'BatteryEnergyValid', 'BatteryEnergyAboveReserve', 'BatteryDetails'
+                'BatteryEnergyValid', 'BatteryEnergyAboveReserve', 'BatteryDetails', 'RscpCapacity', 'RscpCapacityValid'
             ]],
             'Wallbox' => ['Wallbox – Übersicht', [
                 'WallboxAvailable', 'WallboxPower', 'WallboxSolar', 'WallboxCharging',
@@ -255,7 +262,7 @@ class E3DCConnector extends IPSModule
                 'Manufacturer', 'Model', 'Serial', 'Firmware', 'ModbusVersion'
             ]],
             'Second' => ['Weiteres Farmgerät', [
-                'SecondOneValid', 'SecondPV', 'SecondBattery', 'SecondSOC', 'SecondCapacity'
+                'SecondOneValid', 'SecondPV', 'SecondBattery', 'SecondSOC', 'SecondCapacity', 'SecondRscpCapacity', 'SecondRscpCapacityValid'
             ]],
             'Diagnostics' => ['Diagnose und Status', [
                 'OperatingModeStatus', 'DataStatus', 'LastSuccess', 'LanSetupStatus', 'ReadNotes', 'DetectedFarmDevices', 'RegisterCount',
@@ -825,29 +832,47 @@ PHP;
                 throw new RuntimeException('IP-Adresse, Port oder Unit-ID ungültig.');
             }
 
+            $notes = [];
+            $this->setGroupedValue('RscpCapacityValid', false);
+            $this->setGroupedValue('SecondRscpCapacityValid', false);
+            $rscp = $this->readLocalRscpDevice($host, false, $notes);
+            $registers = $this->mergeRscpCore([], $rscp);
+
             $address = str_contains($host, ':') ? '[' . $host . ']' : $host;
             $socket = @stream_socket_client('tcp://' . $address . ':' . $port, $errorCode, $errorText, 2.0);
-            if ($socket === false) {
-                throw new RuntimeException('TCP-Verbindung fehlgeschlagen (Fehler ' . $errorCode . ').');
-            }
-
-            try {
-                stream_set_timeout($socket, 2);
-                if ($this->readRegisters($socket, $unit, 1, 40001, 1)[0] !== 0xE3DC) {
-                    throw new RuntimeException('E3/DC Simple Mode wurde nicht erkannt.');
+            if ($socket !== false) {
+                try {
+                    stream_set_timeout($socket, 2);
+                    if ($this->readRegisters($socket, $unit, 1, 40001, 1)[0] !== 0xE3DC) {
+                        throw new RuntimeException('E3/DC Simple Mode wurde nicht erkannt.');
+                    }
+                    $transaction = 2;
+                    $modbus = $this->readCore($socket, $unit, $transaction, $notes);
+                    $registers = $this->mergeRscpCore($modbus, $rscp);
+                    $this->publishCore($registers);
+                    $this->readDetails($socket, $unit, $transaction, $notes, $registers[15] ?? -1);
+                } catch (RuntimeException $error) {
+                    $notes['Modbus'] = $error->getMessage();
+                } finally {
+                    fclose($socket);
                 }
-                $transaction = 2;
-                $notes = [];
-                $registers = $this->readCore($socket, $unit, $transaction, $notes);
-                $this->publishCore($registers);
-                $this->setGroupedValue('LastSuccess', time());
-                $this->readDetails($socket, $unit, $transaction, $notes, $registers[15] ?? -1);
-            } finally {
-                fclose($socket);
+            } else {
+                $notes['Modbus'] = 'TCP-Verbindung fehlgeschlagen (Fehler ' . $errorCode . ').';
             }
-
+            if (isset($notes['Modbus'])) {
+                if (!isset($registers[0], $registers[2], $registers[4], $registers[6])) {
+                    throw new RuntimeException($notes['Modbus'] . ' ' . ($notes['RSCP Hauptgerät'] ?? 'RSCP-Grundwerte fehlen.'));
+                }
+                $this->publishCore($registers);
+                foreach (['FarmPowerValid', 'FarmBatteryValid', 'SecondOneValid', 'WallboxAvailable', 'SGReadyValid', 'BatteryEnergyValid'] as $ident) {
+                    $this->setGroupedValue($ident, false);
+                }
+                $this->publishAccessories([]);
+                $this->publishJson('ReadNotes', $notes);
+            }
+            $this->setGroupedValue('LastSuccess', time());
             $this->publishDaily($this->isFarmMode() && $this->getGroupedValue('FarmPowerValid'), $registers);
-            $this->setGroupedValue('DataStatus', 'Messwerte aktualisiert');
+            $this->setGroupedValue('DataStatus', $rscp === [] ? 'Messwerte aktualisiert (Modbus)' : 'Messwerte aktualisiert (RSCP bevorzugt)');
             $this->SetStatus(102);
         } catch (RuntimeException $error) {
             $this->publishAccessories([]);
@@ -864,6 +889,52 @@ PHP;
         } finally {
             IPS_SemaphoreLeave($lock);
         }
+    }
+
+    private function readLocalRscpDevice(string $host, bool $second, array &$notes): array
+    {
+        if (!$this->ReadPropertyBoolean('ReadRscpSolar')) {
+            return [];
+        }
+        $port = $this->ReadPropertyInteger('DeviceRscpPort');
+        $user = trim($this->ReadPropertyString('FarmRscpUser'));
+        $password = $this->ReadPropertyString('FarmRscpPassword');
+        $key = $this->ReadPropertyString('FarmRscpKey');
+        if ($port < 1 || $port > 65535 || $user === '' || $password === '' || $key === '') {
+            return [];
+        }
+        $label = $second ? 'RSCP zweites Farmgerät' : 'RSCP Hauptgerät';
+        try {
+            $data = (new \E3DCConnector\FarmRscp($key))->readDevice($host, $port, $user, $password);
+        } catch (RuntimeException $error) {
+            $notes[$label] = $error->getMessage();
+            return [];
+        }
+        $live = $data['live'];
+        $notes[$label] = $live === [] ? 'Keine Live-Messwerte geliefert.' : 'Live-Werte über RSCP: ' . implode(', ', array_keys($live));
+        $capacity = $data['specification']['Kapazität (Wh)'] ?? null;
+        $valid = $capacity !== null && $capacity > 0;
+        $this->setGroupedValue($second ? 'SecondRscpCapacityValid' : 'RscpCapacityValid', $valid);
+        if ($valid) {
+            $this->setGroupedValue($second ? 'SecondRscpCapacity' : 'RscpCapacity', $capacity / 1000);
+        } else {
+            $notes[$label . ' Batterie'] = $data['batteryError'] ?: 'Keine spezifizierte Kapazität für Batterieindex 0 geliefert.';
+        }
+        return $live;
+    }
+
+    private function mergeRscpCore(array $registers, array $live): array
+    {
+        foreach (array_keys(self::POWER) as $index => $ident) {
+            if (isset($live[$ident])) {
+                $registers[2 * $index] = $live[$ident] & 0xFFFF;
+                $registers[2 * $index + 1] = ($live[$ident] >> 16) & 0xFFFF;
+            }
+        }
+        if (isset($live['SOC'])) {
+            $registers[15] = $live['SOC'];
+        }
+        return $registers;
     }
 
     private function readCore($socket, int $unit, int &$transaction, array &$notes): array
@@ -1573,11 +1644,16 @@ PHP;
         if (!filter_var($host, FILTER_VALIDATE_IP) || inet_pton($host) === inet_pton($master)) {
             throw new RuntimeException('Eine andere gültige IP-Adresse für den zweiten one eingeben.');
         }
+        $rscp = $this->readLocalRscpDevice($host, true, $notes);
         $port = $this->ReadPropertyInteger('Port');
         $unit = $this->ReadPropertyInteger('Unit');
         $address = str_contains($host, ':') ? '[' . $host . ']' : $host;
         $socket = @stream_socket_client('tcp://' . $address . ':' . $port, $errorCode, $errorText, 2.0);
         if ($socket === false) {
+            if (isset($rscp['PV'], $rscp['Battery'])) {
+                $notes['Modbus zweites Farmgerät'] = 'Modbus nicht erreichbar. RSCP-Leistung wird verwendet.';
+                return [$rscp['PV'], $rscp['Battery'], $rscp['SOC'] ?? -1, [], []];
+            }
             throw new RuntimeException('TCP-Verbindung fehlgeschlagen (Fehler ' . $errorCode . ').');
         }
 
@@ -1588,7 +1664,7 @@ PHP;
             }
             usleep(110000);
             $transaction = 2;
-            $core = $this->readCore($socket, $unit, $transaction, $notes);
+            $core = $this->mergeRscpCore($this->readCore($socket, $unit, $transaction, $notes), $rscp);
             $energy = [];
             try {
                 usleep(110000);
@@ -1617,6 +1693,12 @@ PHP;
                 }
             });
             return [$this->signed32($core, 0), $this->signed32($core, 2), $soc, $energy, $inverters];
+        } catch (RuntimeException $error) {
+            if (!isset($rscp['PV'], $rscp['Battery'])) {
+                throw $error;
+            }
+            $notes['Modbus zweites Farmgerät'] = $error->getMessage();
+            return [$rscp['PV'], $rscp['Battery'], $rscp['SOC'] ?? -1, [], []];
         } finally {
             fclose($socket);
         }

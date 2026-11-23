@@ -54,21 +54,8 @@ final class FarmRscp
 
     public function readDayEnergyWh(string $host, int $port, string $user, string $password, int $day): array
     {
-        $address = str_contains($host, ':') ? '[' . $host . ']' : $host;
-        $socket = @stream_socket_client('tcp://' . $address . ':' . $port, $code, $message, 2.0);
-        if ($socket === false) {
-            throw new RuntimeException('RSCP-Farmcontroller ist nicht erreichbar.');
-        }
+        $socket = $this->openSession($host, $port, $user, $password);
         try {
-            stream_set_timeout($socket, 2);
-            $credentials = self::element(2, 0x0D, $user) . self::element(3, 0x0D, $password);
-            $auth = $this->exchange($socket, self::element(self::AUTH_REQUEST, self::CONTAINER, $credentials));
-            $response = $auth[self::AUTH_RESPONSE] ?? null;
-            if ($response === null || $response[0] === self::ERROR || $response[1] === ''
-                || ord($response[1][0]) === 0) {
-                throw new RuntimeException('RSCP-Anmeldung wurde abgewiesen.');
-            }
-
             $period = self::element(0x06000101, 0x09, pack('P', $day))
                 . self::element(0x06000102, 0x09, pack('P', 86400))
                 . self::element(0x06000103, 0x09, pack('P', 86400));
@@ -94,14 +81,92 @@ final class FarmRscp
         }
     }
 
+    public function readDevice(string $host, int $port, string $user, string $password): array
+    {
+        $socket = $this->openSession($host, $port, $user, $password);
+        try {
+            $liveTags = [1 => 'PV', 2 => 'Battery', 3 => 'House', 4 => 'Grid', 5 => 'External',
+                8 => 'SOC', 31 => 'WallboxPower', 32 => 'WallboxSolar'];
+            $request = '';
+            foreach ($liveTags as $offset => $name) {
+                $request .= self::element(0x01000000 + $offset, 0, '');
+            }
+            $answer = $this->exchange($socket, $request);
+            $live = [];
+            foreach ($liveTags as $offset => $name) {
+                $element = $answer[0x01800000 + $offset] ?? null;
+                $value = $element === null ? null : self::decodeEnergy($element);
+                if ($value === null || $value < -2147483648 || $value > 2147483647
+                    || ($name === 'SOC' && ($value < 0 || $value > 100))) {
+                    continue;
+                }
+                $live[$name] = (int) round($value);
+            }
+
+            $specification = [];
+            $batteryError = '';
+            try {
+                $request = self::element(0x03040001, 0x05, pack('v', 0))
+                    . self::element(0x03000043, 0, '');
+                $answer = $this->exchange($socket, self::element(0x03040000, self::CONTAINER, $request));
+                $battery = $answer[0x03840000] ?? null;
+                $container = ($battery[0] ?? null) === self::CONTAINER ? ($battery[1][0x03800043] ?? null) : null;
+                if (($container[0] ?? null) === self::CONTAINER) {
+                    foreach ([0x03800125 => 'Kapazität (Wh)', 0x03800126 => 'Spezifizierte Entladeleistung (W)',
+                        0x03800127 => 'Spezifizierte Ladeleistung (W)'] as $tag => $name) {
+                        if (isset($container[1][$tag])) {
+                            $value = self::decodeEnergy($container[1][$tag]);
+                            if ($value !== null) {
+                                $specification[$name] = $value;
+                            }
+                        }
+                    }
+                }
+            } catch (RuntimeException $error) {
+                $batteryError = $error->getMessage();
+            }
+            return ['live' => $live, 'specification' => $specification, 'batteryError' => $batteryError];
+        } finally {
+            fclose($socket);
+        }
+    }
+
+    private function openSession(string $host, int $port, string $user, string $password)
+    {
+        $address = str_contains($host, ':') ? '[' . $host . ']' : $host;
+        $socket = @stream_socket_client('tcp://' . $address . ':' . $port, $code, $message, 2.0);
+        if ($socket === false) {
+            throw new RuntimeException('RSCP-Gerät ist nicht erreichbar.');
+        }
+        try {
+            stream_set_timeout($socket, 2);
+            $credentials = self::element(2, 0x0D, $user) . self::element(3, 0x0D, $password);
+            $auth = $this->exchange($socket, self::element(self::AUTH_REQUEST, self::CONTAINER, $credentials));
+            $response = $auth[self::AUTH_RESPONSE] ?? null;
+            if ($response === null || $response[0] === self::ERROR || $response[1] === ''
+                || ord($response[1][0]) === 0) {
+                throw new RuntimeException('RSCP-Anmeldung wurde abgewiesen.');
+            }
+
+            return $socket;
+        } catch (RuntimeException $error) {
+            fclose($socket);
+            throw $error;
+        }
+    }
+
     private static function decodeEnergy(array $element): int|float|null
     {
         [$type, $data] = $element;
-        $format = [0x06 => 'V', 0x07 => 'V', 0x08 => 'P', 0x09 => 'P', 0x0A => 'g', 0x0B => 'e'][$type] ?? null;
-        if ($format === null || strlen($data) !== (in_array($format, ['V', 'g'], true) ? 4 : 8)) {
+        $format = [0x02 => 'c', 0x03 => 'C', 0x04 => 'v', 0x05 => 'v', 0x06 => 'V', 0x07 => 'V', 0x08 => 'P', 0x09 => 'P', 0x0A => 'g', 0x0B => 'e'][$type] ?? null;
+        $length = [0x02 => 1, 0x03 => 1, 0x04 => 2, 0x05 => 2, 0x06 => 4, 0x07 => 4, 0x08 => 8, 0x09 => 8, 0x0A => 4, 0x0B => 8][$type] ?? null;
+        if ($format === null || strlen($data) !== $length) {
             return null;
         }
         $value = unpack($format, $data)[1];
+        if ($type === 0x04 && $value >= 0x8000) {
+            $value -= 0x10000;
+        }
         if ($type === 0x06 && $value >= 0x80000000) {
             $value -= 0x100000000;
         }

@@ -288,17 +288,24 @@
           "items": [
             {
               "type": "Label",
-              "caption": "Liest die vom Gerät angebotenen Tagessummen über RSCP. Der Farmcontroller verwendet üblicherweise Port 5034. Benutzerpasswort und Verschlüsselungsschlüssel werden in dieser Symcon-Instanz hinterlegt."
+              "caption": "RSCP hat Vorrang für verfügbare Live-Werte. Unterstützte Batterie-Spezifikationen erscheinen pro Gerät. Tagessummen kommen vom Farmcontroller. Modbus ergänzt fehlende Werte und Gerätedetails."
             },
             {
               "type": "CheckBox",
               "name": "ReadRscpSolar",
-              "caption": "RSCP-Tagessummen auslesen"
+              "caption": "Lokales RSCP verwenden"
+            },
+            {
+              "type": "NumberSpinner",
+              "name": "DeviceRscpPort",
+              "caption": "RSCP-Port der Einzelgeräte",
+              "minimum": 1,
+              "maximum": 65535
             },
             {
               "type": "NumberSpinner",
               "name": "FarmRscpPort",
-              "caption": "RSCP-Port des Farmcontrollers",
+              "caption": "RSCP-Port für Tagessummen",
               "minimum": 1,
               "maximum": 65535
             },

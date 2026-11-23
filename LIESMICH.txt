@@ -308,3 +308,19 @@ Die LAN-Suche speichert eine eindeutige Erkennung als „Farm“ oder
 neue Instanz beginnt mit den Einrichtungs- und Statusvariablen.
 Messvariablen werden bei Übernahme der Geräteadresse angelegt.
 Farmvariablen werden im Einzelbetrieb nicht neu angelegt.
+
+
+Lokales RSCP als bevorzugte Quelle
+Die vorhandene RSCP-Freigabe aktiviert zusätzlich die Live-Abfrage.
+Die Einzelgeräte verwenden standardmäßig Port 5033, die Farm-Tagesdaten
+Port 5034. Für beide werden Benutzer, Passwort und Schlüssel aus der
+lokalen Instanzkonfiguration verwendet. Die direkt hinterlegte zweite
+IP-Adresse wird separat abgefragt. Bei einer älteren zweiten Symcon-
+Instanz werden deren aktuelle Variablen verwendet.
+
+PV, Batterie, Haus, Netz, externe Einspeiser, Wallbox-Leistung und
+Ladezustand verwenden erfolgreiche RSCP-Werte je Gerät. Modbus
+ergänzt fehlende Felder und liefert weiterhin Zähler- und Gerätedetails.
+Die Batterie-Spezifikation für Index 0 steht pro Gerät separat in kWh.
+Sie wird nicht als nutzbare Kapazität behandelt oder ungeprüft zu
+einem Farmwert addiert. Modbus bleibt für LAN-Suche und Steuerung aktiv.
