@@ -1073,20 +1073,26 @@ PHP;
     {
         $form = json_decode(file_get_contents(__DIR__ . '/form.json'), true, 512, JSON_THROW_ON_ERROR);
         $root = @IPS_GetObjectIDByIdent('CategoryAccessories', $this->InstanceID);
-        $detected = [];
+        $rows = $this->accessorySettings();
         foreach ($root !== false && IPS_CategoryExists($root) ? IPS_GetChildrenIDs($root) : [] as $category) {
             if (!IPS_CategoryExists($category)) {
                 continue;
             }
             $key = IPS_GetObject($category)['ObjectIdent'];
             $current = @IPS_GetObjectIDByIdent('Aktuell', $category);
-            $detected[] = ['Key' => $key, 'Name' => IPS_GetName($category),
-                'Current' => $current !== false && IPS_VariableExists($current) && GetValue($current) ? 'Erkannt' : 'Zuletzt erkannt'];
+            $setting = $rows[$key] ?? [];
+            $rows[$key] = [
+                'Key' => $key,
+                'Name' => ($setting['Name'] ?? '') !== '' ? $setting['Name'] : IPS_GetName($category),
+                'Visible' => $setting['Visible'] ?? true,
+                'Current' => $current !== false && IPS_VariableExists($current) && GetValue($current)
+                    ? 'Erkannt' : 'Zuletzt erkannt'
+            ];
         }
         foreach ($form['elements'] as &$section) {
             foreach ($section['items'] ?? [] as $index => $item) {
-                if (($item['name'] ?? '') === 'DetectedAccessories') {
-                    $section['items'][$index]['values'] = $detected;
+                if (($item['name'] ?? '') === 'AccessoryOptions') {
+                    $section['items'][$index]['values'] = array_values($rows);
                 }
             }
         }
@@ -1094,17 +1100,30 @@ PHP;
         return json_encode($form, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE);
     }
 
+    private function accessorySettings(): array
+    {
+        $settings = [];
+        foreach (json_decode($this->ReadPropertyString('AccessoryOptions'), true) ?? [] as $row) {
+            if (!is_array($row) || !is_string($row['Key'] ?? null) || trim($row['Key']) === '') {
+                continue;
+            }
+            $key = trim($row['Key']);
+            $settings[$key] = [
+                'Key' => $key,
+                'Name' => (string) ($row['Name'] ?? ''),
+                'Visible' => (bool) ($row['Visible'] ?? true),
+                'Current' => 'Noch nicht erkannt'
+            ];
+        }
+        return $settings;
+    }
+
     private function publishAccessories(array $groups, int $farm = -1, int $heatPump = -1): void
     {
         $ident = 'CategoryAccessories';
         $root = @IPS_GetObjectIDByIdent($ident, $this->InstanceID);
         $names = json_decode($this->ReadPropertyString('AccessoryNames'), true);
-        $settings = [];
-        foreach (json_decode($this->ReadPropertyString('AccessoryOptions'), true) ?? [] as $row) {
-            if (is_array($row) && is_string($row['Key'] ?? null)) {
-                $settings[$row['Key']] = $row;
-            }
-        }
+        $settings = $this->accessorySettings();
         if ($root === false && array_filter($groups) === []) {
             return;
         }

@@ -249,82 +249,48 @@
       "items": [
         {
           "type": "Label",
-          "caption": "Erkannte Wallboxen, Zähler, MPP-Tracker und Wechselrichter erscheinen nach der nächsten erfolgreichen Abfrage. Für die Übersicht verwendet Symcon einen verfügbaren Wallbox-Slot."
+          "caption": "Erkannte Geräte erscheinen automatisch. Anzeigename und Sichtbarkeit lassen sich direkt in der Tabelle ändern."
         },
         {
           "type": "List",
-          "name": "DetectedAccessories",
-          "caption": "Erkanntes Zubehör",
-          "rowCount": 5,
+          "name": "AccessoryOptions",
+          "caption": "Zubehör",
+          "rowCount": 6,
           "add": false,
           "delete": false,
-          "loadValuesFromConfiguration": false,
-          "values": [],
           "columns": [
             {
               "caption": "Kennung",
               "name": "Key",
-              "width": "135px"
+              "width": "130px",
+              "save": true
             },
             {
               "caption": "Anzeigename",
               "name": "Name",
-              "width": "auto"
+              "width": "auto",
+              "add": "",
+              "edit": {
+                "type": "ValidationTextBox"
+              }
             },
             {
               "caption": "Status",
               "name": "Current",
               "width": "125px"
-            }
-          ]
-        },
-        {
-          "type": "ExpansionPanel",
-          "caption": "Namen und Sichtbarkeit anpassen",
-          "expanded": false,
-          "items": [
-            {
-              "type": "Label",
-              "caption": "Die Kennung aus der Liste übernehmen, zum Beispiel Wallbox0. Für die Einrichtung ist kein Eintrag erforderlich."
             },
             {
-              "type": "List",
-              "name": "AccessoryOptions",
-              "caption": "Optionale Anpassungen",
-              "rowCount": 4,
+              "caption": "Sichtbar",
+              "name": "Visible",
+              "width": "80px",
               "add": true,
-              "delete": true,
-              "columns": [
-                {
-                  "caption": "Kennung",
-                  "name": "Key",
-                  "width": "130px",
-                  "add": "",
-                  "edit": {
-                    "type": "ValidationTextBox"
-                  }
-                },
-                {
-                  "caption": "Name",
-                  "name": "Name",
-                  "width": "auto",
-                  "add": "",
-                  "edit": {
-                    "type": "ValidationTextBox"
-                  }
-                },
-                {
-                  "caption": "Sichtbar",
-                  "name": "Visible",
-                  "width": "80px",
-                  "add": true,
-                  "edit": {
-                    "type": "CheckBox"
-                  }
-                }
-              ]
+              "edit": {
+                "type": "CheckBox"
+              }
             }
-          ]
+          ],
+          "loadValuesFromConfiguration": false,
+          "values": []
         },
         {
           "type": "ExpansionPanel",

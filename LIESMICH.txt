@@ -1,4 +1,4 @@
-E3DC Farm 0.9.5 für IP-Symcon 9.0
+E3DC Farm 0.9.6 für IP-Symcon 9.0
 
 Installation
 1. Auf dem Rechner, auf dem der IP-Symcon-Dienst läuft, den Ordner
@@ -272,7 +272,8 @@ addiert. Für die Farm-Summen unterstützt die Instanz weiterhin
 ein Hauptgerät plus ein weiteres zugeordnetes E3/DC-Gerät.
 
 Automatisches Zubehör und lokale RSCP-Tagessummen ab 0.9.3
-Die Liste „Erkanntes Zubehör“ zeigt die zuletzt gemeldeten Geräte.
+Die Tabelle „Zubehör“ zeigt die zuletzt gemeldeten Geräte. Anzeigename
+und Sichtbarkeit lassen sich direkt in ihrer Zeile bearbeiten.
 Die Wallbox-Übersicht nutzt einen verfügbaren Slot, auch wenn die
 frühere Slot-Vorgabe nicht mehr passt. Für optionale Namen und
 Sichtbarkeit gibt es eine Tabelle. Ältere JSON-Namen gelten weiter.
