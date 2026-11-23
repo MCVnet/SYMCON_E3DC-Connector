@@ -158,6 +158,12 @@
           "caption": "Erkannte Geräte erscheinen automatisch. Die Spalte „Funktion“ zeigt ihre automatische Zuordnung. Anzeigename und Sichtbarkeit lassen sich in der Tabelle ändern."
         },
         {
+          "type": "Button",
+          "caption": "RSCP-Zubehör suchen",
+          "onClick": "echo E3DCF_ScanRscpAccessories($id);",
+          "confirm": "Die Suche lädt das Formular neu. Ungespeicherte Änderungen gehen verloren. Zubehör jetzt suchen?"
+        },
+        {
           "type": "List",
           "name": "AccessoryOptions",
           "caption": "Zubehör",
@@ -325,11 +331,6 @@
       "type": "Button",
       "caption": "Jetzt auslesen",
       "onClick": "E3DCF_Poll($id); E3DCF_PollRscpSolar($id); E3DCF_RefreshRscpDetails($id);"
-    },
-    {
-      "type": "Button",
-      "caption": "RSCP-Zubehör suchen",
-      "onClick": "echo E3DCF_ScanRscpAccessories($id);"
     },
     {
       "type": "Button",
