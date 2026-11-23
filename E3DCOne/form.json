@@ -113,13 +113,29 @@
               "type": "CheckBox",
               "name": "FarmMeterIsConsumption",
               "caption": "Farmzähler ist ein reiner Verbrauchszähler"
+            }
+          ]
+        },
+        {
+          "type": "ExpansionPanel",
+          "caption": "Optionaler Zusatzverbrauch",
+          "expanded": false,
+          "items": [
+            {
+              "type": "Label",
+              "caption": "Ein separater Zähler kann einen bereits im Gesamtverbrauch enthaltenen Verbraucher ausweisen, etwa eine Wärmepumpe. Ein eindeutiger Typ-4-Zähler wird automatisch erkannt."
             },
             {
               "type": "NumberSpinner",
               "name": "HeatPumpMeter",
-              "caption": "Index Wärmepumpenzähler (−1 = automatisch)",
-              "minimum": -1,
+              "caption": "Zählerindex (−2 = aus, −1 = Typ 4 automatisch)",
+              "minimum": -2,
               "maximum": 7
+            },
+            {
+              "type": "ValidationTextBox",
+              "name": "AdditionalConsumerName",
+              "caption": "Anzeigename des Verbrauchers (optional)"
             }
           ]
         },

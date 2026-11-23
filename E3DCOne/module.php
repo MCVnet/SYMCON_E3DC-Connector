@@ -34,7 +34,7 @@ class E3DCOne extends IPSModule
         'DayGridImport' => 'Netzbezug heute (berechnet, kWh)',
         'DayGridExport' => 'Netzeinspeisung heute (berechnet, kWh)',
         'DayHouse' => 'Hausverbrauch heute (kWh)',
-        'DayHeatPump' => 'Wärmepumpe heute (kWh)',
+        'DayHeatPump' => 'Zusatzverbrauch heute (kWh)',
         'DayWallbox' => 'Wallbox geladen heute (kWh)',
         'DayConsumption' => 'Gesamtverbrauch heute (kWh)'
     ];
@@ -77,6 +77,7 @@ class E3DCOne extends IPSModule
         $this->RegisterPropertyInteger('FarmConsumptionMeter', -1);
         $this->RegisterPropertyBoolean('FarmMeterIsConsumption', false);
         $this->RegisterPropertyInteger('HeatPumpMeter', -1);
+        $this->RegisterPropertyString('AdditionalConsumerName', '');
         $this->RegisterPropertyInteger('SecondOne', 0);
         $this->RegisterPropertyString('SecondHost', '');
         $this->RegisterPropertyString('LanNetwork', '');
@@ -110,8 +111,9 @@ class E3DCOne extends IPSModule
         $this->maintainGroupedVariable('EfficiencyRaw', 'Autarkie und Eigenverbrauch (Register 40082)', '', VARIABLETYPE_STRING);
         $this->maintainGroupedVariable('EMSFlags', 'EMS-Status (Details)', '', VARIABLETYPE_STRING);
         $this->maintainGroupedVariable('FarmConsumption', 'Farm-Gesamtverbrauch (W)', '', VARIABLETYPE_INTEGER);
-        $this->maintainGroupedVariable('HeatPumpConsumption', 'Wärmepumpe (W)', '', VARIABLETYPE_INTEGER);
-        $this->maintainGroupedVariable('FarmHouseConsumption', 'Hausverbrauch ohne Wärmepumpe (W)', '', VARIABLETYPE_INTEGER);
+        $this->maintainGroupedVariable('AdditionalConsumerValid', 'Zusatzverbrauch aktuell', '', VARIABLETYPE_BOOLEAN);
+        $this->maintainGroupedVariable('HeatPumpConsumption', 'Zusatzverbrauch (W)', '', VARIABLETYPE_INTEGER);
+        $this->maintainGroupedVariable('FarmHouseConsumption', 'Hausverbrauch ohne Zusatzverbrauch (W)', '', VARIABLETYPE_INTEGER);
         $this->maintainGroupedVariable('FarmMeterPower', 'Farmzähler – vorzeichenbehaftete Leistung (W)', '', VARIABLETYPE_INTEGER);
         $this->maintainGroupedVariable('RscpDayEnergy', 'RSCP-Tagessummen (Wh)', '', VARIABLETYPE_STRING);
         $this->maintainGroupedVariable('DayPVEstimate', 'Solarproduktion heute – Modbus-Summe (kWh)', '', VARIABLETYPE_FLOAT);
@@ -176,6 +178,8 @@ class E3DCOne extends IPSModule
         parent::ApplyChanges();
         $this->maintainGroupedVariables();
         $this->updateOperatingLayout();
+        $this->setGroupedValue('AdditionalConsumerValid', false);
+        $this->updateAdditionalConsumer(false);
         $this->publishExternalSystems();
         $this->SetTimerInterval('PollTimer', 0);
         $this->SetTimerInterval('RscpSolarTimer', 0);
@@ -216,7 +220,7 @@ class E3DCOne extends IPSModule
     private const GROUPS = [
             'Farm' => ['Farm – Gesamtanlage', [
                 'FarmPV', 'FarmGrid', 'FarmGridImport', 'FarmGridExport', 'FarmConsumption',
-                'FarmHouseConsumption', 'HeatPumpConsumption', 'FarmAutarky',
+                'FarmHouseConsumption', 'HeatPumpConsumption', 'AdditionalConsumerValid', 'FarmAutarky',
                 'FarmWallboxPower', 'FarmPowerValid', 'FarmConsumptionValid', 'FarmMeterPower',
                 'FarmBatterySOC', 'FarmBatteryPower', 'FarmBatteryChargePower', 'FarmBatteryDischargePower', 'FarmBatteryCapacity', 'FarmBatteryEnergy', 'FarmBatteryValid'
             ]],
@@ -719,6 +723,7 @@ PHP;
         try {
             $this->publishExternalSystems();
             $this->setGroupedValue('FarmConsumptionValid', false);
+            $this->setGroupedValue('AdditionalConsumerValid', false);
             $host = trim($this->ReadPropertyString('Host'));
             $port = $this->ReadPropertyInteger('Port');
             $unit = $this->ReadPropertyInteger('Unit');
@@ -967,15 +972,16 @@ PHP;
         $heatPump = $this->ReadPropertyInteger('HeatPumpMeter');
         if ($auto && $meters !== null) {
             $farm = $this->resolveMeter($meters, $farm, 5, 'Farmzähler', $notes);
-            $heatPump = $this->resolveMeter($meters, $heatPump, 4, 'Wärmepumpenzähler', $notes);
+            $heatPump = $this->resolveMeter($meters, $heatPump, 4, 'Zusatzverbrauchszähler', $notes);
         }
         $this->publishJson('DetectedFarmDevices', [
             'Farmzähler' => $farm >= 0 ? $farm : null,
-            'Wärmepumpenzähler' => $heatPump >= 0 ? $heatPump : null,
+            'Zusatzverbrauchszähler' => $heatPump >= 0 ? $heatPump : null,
             'Wallbox-Slot' => $wallboxAvailable ? $slot : null
         ]);
-        $farmBalance = $farm === -1 && $heatPump === -1
-            ? null : $this->readFarmMeterPowers($meterData, $farm, $heatPump, $notes);
+        $farmBalance = $this->isFarmMode() ? $this->readFarmMeterPowers($meterData, $farm, $heatPump, $notes) : null;
+        $additionalMeter = $this->isFarmMode() && $heatPump >= 0 && $heatPump !== $farm;
+        $this->updateAdditionalConsumer($additionalMeter);
 
         $battery = $read('Batteriegrenzen und Speicherenergie', 40202, 8);
         $batteryData = [];
@@ -1113,7 +1119,7 @@ PHP;
                 $visible = (bool) ($settings[$key]['Visible'] ?? true);
                 $defaultName = match (true) {
                     $kind === 'Zaehler' && $index === $farm => 'Farmzähler',
-                    $kind === 'Zaehler' && $index === $heatPump => 'Wärmepumpenzähler',
+                    $kind === 'Zaehler' && $index === $heatPump => trim($this->ReadPropertyString('AdditionalConsumerName')) ?: 'Zusatzverbrauchszähler',
                     $kind === 'Zaehler' => 'Zähler ' . $index,
                     $kind === 'String' => 'MPP-Tracker ' . $index,
                     default => $kind . ' ' . $index
@@ -1427,13 +1433,20 @@ PHP;
             $consumption = $meterPower;
             $grid = $consumption + $wallbox - $pv - $external + $battery;
         }
-        if ($heat < 0 || $consumption < $heat) {
-            $notes['Farm-Bilanz'] = sprintf('Gesamtverbrauch %d W kleiner als Wärmepumpenleistung %d W oder Wärmepumpenwert negativ. Zähler am Netzübergabepunkt prüfen.',
-                $consumption, $heat);
+        if ($consumption < 0) {
+            $notes['Farm-Bilanz'] = 'Der berechnete Farm-Gesamtverbrauch ist negativ. Messpunkt und Vorzeichen prüfen.';
             return;
         }
+        if ($heat !== null && ($heat < 0 || $consumption < $heat)) {
+            $notes['Zusatzverbrauch'] = sprintf('Zusatzverbrauch %d W passt nicht zum Farm-Gesamtverbrauch %d W.', $heat, $consumption);
+            $heat = null;
+        }
         $this->setGroupedValue('FarmConsumption', $consumption);
-        $this->setGroupedValue('FarmHouseConsumption', $consumption - $heat);
+        if ($heat !== null) {
+            $this->setGroupedValue('HeatPumpConsumption', $heat);
+            $this->setGroupedValue('FarmHouseConsumption', $consumption - $heat);
+            $this->setGroupedValue('AdditionalConsumerValid', true);
+        }
         $this->setGroupedValue('FarmConsumptionValid', true);
         $demand = $consumption + $wallbox;
         $import = max(0, $grid);
@@ -1592,10 +1605,12 @@ PHP;
             $powers += [
                 'DayGridImport' => $this->getGroupedValue('FarmGridImport'),
                 'DayGridExport' => $this->getGroupedValue('FarmGridExport'),
-                'DayHouse' => $this->getGroupedValue('FarmHouseConsumption'),
-                'DayHeatPump' => $this->getGroupedValue('HeatPumpConsumption'),
                 'DayConsumption' => $this->getGroupedValue('FarmConsumption')
             ];
+            if ($this->getGroupedValue('AdditionalConsumerValid')) {
+                $powers['DayHouse'] = $this->getGroupedValue('FarmHouseConsumption');
+                $powers['DayHeatPump'] = $this->getGroupedValue('HeatPumpConsumption');
+            }
         }
 
         if ($single && $core !== null) {
@@ -1684,19 +1699,45 @@ PHP;
         return -1;
     }
 
-    private function readFarmMeterPowers(array $meters, int $farm, int $heatPump, array &$notes): ?array
+    private function updateAdditionalConsumer(bool $visible): void
+    {
+        $name = trim($this->ReadPropertyString('AdditionalConsumerName'));
+        $consumer = $name !== '' ? $name : 'Zusatzverbrauch';
+        foreach ([
+            'HeatPumpConsumption' => $consumer . ' (W)',
+            'FarmHouseConsumption' => 'Hausverbrauch ohne ' . $consumer . ' (W)',
+            'DayHeatPump' => $consumer . ' heute (kWh)',
+            'DayHouse' => $this->isFarmMode() ? 'Hausverbrauch ohne ' . $consumer . ' heute (kWh)' : self::DAILY['DayHouse'],
+            'AdditionalConsumerValid' => 'Zusatzverbrauch aktuell',
+        ] as $ident => $caption) {
+            $id = $this->groupedVariableID($ident);
+            if (IPS_GetName($id) !== $caption) {
+                IPS_SetName($id, $caption);
+            }
+            IPS_SetHidden($id, !$visible && ($ident !== 'DayHouse' || $this->isFarmMode()));
+        }
+    }
+
+    private function readFarmMeterPowers(array $meters, int $farm, int $additional, array &$notes): ?array
     {
         $farmMeter = $meters['Index ' . $farm] ?? [];
-        $heatPumpMeter = $meters['Index ' . $heatPump] ?? [];
-        if (($farmMeter['Typ'] ?? null) !== 5 || ($heatPumpMeter['Typ'] ?? null) !== 4) {
-            $notes['Farm-Verbrauch'] = 'Farmzähler (Typ 5) und Wärmepumpenzähler (Typ 4) zuordnen.';
+        if (($farmMeter['Typ'] ?? null) !== 5) {
+            $notes['Farm-Verbrauch'] = 'Farmzähler (Typ 5) zuordnen.';
             return null;
         }
         $total = $farmMeter['L1 (W)'] + $farmMeter['L2 (W)'] + $farmMeter['L3 (W)'];
-        $heat = $heatPumpMeter['L1 (W)'] + $heatPumpMeter['L2 (W)'] + $heatPumpMeter['L3 (W)'];
         $this->setGroupedValue('FarmMeterPower', $total);
-        $this->setGroupedValue('HeatPumpConsumption', $heat);
-        return [$total, $heat];
+
+        $extra = $meters['Index ' . $additional] ?? [];
+        $consumption = null;
+        if ($additional >= 0) {
+            if ($additional !== $farm && ($extra['Typ'] ?? 0) !== 0) {
+                $consumption = $extra['L1 (W)'] + $extra['L2 (W)'] + $extra['L3 (W)'];
+            } else {
+                $notes['Zusatzverbrauch'] = 'Der ausgewählte Zusatzverbrauchszähler ist nicht verfügbar oder entspricht dem Farmzähler.';
+            }
+        }
+        return [$total, $consumption];
     }
 
     private function decodeText(array $registers): string

@@ -1,4 +1,4 @@
-E3DC Farm 0.9.3 für IP-Symcon 9.0
+E3DC Farm 0.9.4 für IP-Symcon 9.0
 
 Installation
 1. Auf dem Rechner, auf dem der IP-Symcon-Dienst läuft, den Ordner
@@ -176,7 +176,7 @@ Unter „Diagnose und Status → LAN-Einrichtung“ steht die Bestätigung.
 
 Automatische Zähler- und Wallbox-Zuordnung
 Standardmäßig wird bei jeder Abfrage ein eindeutiger Typ-5-Zähler
-als Farmzähler und ein eindeutiger Typ-4-Zähler als Wärmepumpenzähler
+als Farmzähler und ein eindeutiger Typ-4-Zähler als Zusatzverbrauchszähler
 verwendet. Typ 4 bedeutet externer Verbrauch. Bei weiteren externen
 Verbrauchern die Zuordnung prüfen. Ein einzelner verfügbarer
 Wallbox-Slot wird ebenfalls erkannt. Fest gewählte Indizes haben
@@ -283,3 +283,12 @@ Unter „Tageswerte und Prognose“ erscheinen die verfügbaren
 RSCP-Energiefelder des Geräts einzeln. Die bisherigen Tages-
 berechnungen bleiben zum Abgleich sichtbar. Prognosen erfordern
 weiterhin eine vorhandene Symcon-Variable als Quelle.
+
+
+Optionaler Zusatzverbrauch ab 0.9.4
+Unter „Farm und Messpunkte“ kann ein separater Zähler einen bereits
+im Gesamtverbrauch enthaltenen Verbraucher ausweisen. Standardmäßig
+wird ein eindeutiger Typ-4-Zähler erkannt. Index −2 deaktiviert die
+Aufteilung, Index 0–7 wählt den Zähler manuell. Der Anzeigename kann
+zum Beispiel „Wärmepumpe“ lauten. Ohne gültigen Zusatzverbrauchszähler
+liefert der Farmzähler weiterhin die Grundlage für Netz und Gesamtverbrauch.
