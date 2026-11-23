@@ -150,91 +150,6 @@
     },
     {
       "type": "ExpansionPanel",
-      "caption": "Externe Systeme",
-      "expanded": false,
-      "items": [
-        {
-          "type": "Label",
-          "caption": "Hier zusätzliche Erzeuger, Verbraucher oder Zähler aus vorhandenen Symcon-Variablen zuordnen. Die Messwerte werden in Watt separat angezeigt, damit bereits erfasste Leistungen nicht doppelt gezählt werden."
-        },
-        {
-          "type": "List",
-          "name": "ExternalSystems",
-          "caption": "Leistungsquellen",
-          "rowCount": 5,
-          "add": true,
-          "delete": true,
-          "columns": [
-            {
-              "name": "Name",
-              "caption": "Name",
-              "width": "auto",
-              "add": "",
-              "edit": {
-                "type": "ValidationTextBox"
-              }
-            },
-            {
-              "name": "Source",
-              "caption": "Symcon-Variable",
-              "width": "180px",
-              "add": 0,
-              "edit": {
-                "type": "SelectVariable"
-              }
-            },
-            {
-              "name": "Role",
-              "caption": "Rolle",
-              "width": "130px",
-              "add": "other",
-              "edit": {
-                "type": "Select",
-                "options": [
-                  {
-                    "caption": "Weiteres System",
-                    "value": "other"
-                  },
-                  {
-                    "caption": "Erzeuger",
-                    "value": "generation"
-                  },
-                  {
-                    "caption": "Verbraucher",
-                    "value": "consumption"
-                  },
-                  {
-                    "caption": "Zähler",
-                    "value": "meter"
-                  }
-                ]
-              }
-            },
-            {
-              "name": "Unit",
-              "caption": "Einheit",
-              "width": "80px",
-              "add": "W",
-              "edit": {
-                "type": "Select",
-                "options": [
-                  {
-                    "caption": "W",
-                    "value": "W"
-                  },
-                  {
-                    "caption": "kW",
-                    "value": "kW"
-                  }
-                ]
-              }
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "type": "ExpansionPanel",
       "caption": "Zusatzzähler, Wallbox und Zubehör",
       "expanded": false,
       "items": [
@@ -316,6 +231,91 @@
           "type": "CheckBox",
           "name": "AllowBatteryControl",
           "caption": "Lokale RSCP-Schreibbefehle freigeben"
+        }
+      ]
+    },
+    {
+      "type": "ExpansionPanel",
+      "caption": "Externe Systeme",
+      "expanded": false,
+      "items": [
+        {
+          "type": "Label",
+          "caption": "Hier zusätzliche Erzeuger, Verbraucher oder Zähler aus vorhandenen Symcon-Variablen zuordnen. Die Messwerte werden in Watt separat angezeigt, damit bereits erfasste Leistungen nicht doppelt gezählt werden."
+        },
+        {
+          "type": "List",
+          "name": "ExternalSystems",
+          "caption": "Leistungsquellen",
+          "rowCount": 5,
+          "add": true,
+          "delete": true,
+          "columns": [
+            {
+              "name": "Name",
+              "caption": "Name",
+              "width": "auto",
+              "add": "",
+              "edit": {
+                "type": "ValidationTextBox"
+              }
+            },
+            {
+              "name": "Source",
+              "caption": "Symcon-Variable",
+              "width": "180px",
+              "add": 0,
+              "edit": {
+                "type": "SelectVariable"
+              }
+            },
+            {
+              "name": "Role",
+              "caption": "Rolle",
+              "width": "130px",
+              "add": "other",
+              "edit": {
+                "type": "Select",
+                "options": [
+                  {
+                    "caption": "Weiteres System",
+                    "value": "other"
+                  },
+                  {
+                    "caption": "Erzeuger",
+                    "value": "generation"
+                  },
+                  {
+                    "caption": "Verbraucher",
+                    "value": "consumption"
+                  },
+                  {
+                    "caption": "Zähler",
+                    "value": "meter"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "Unit",
+              "caption": "Einheit",
+              "width": "80px",
+              "add": "W",
+              "edit": {
+                "type": "Select",
+                "options": [
+                  {
+                    "caption": "W",
+                    "value": "W"
+                  },
+                  {
+                    "caption": "kW",
+                    "value": "kW"
+                  }
+                ]
+              }
+            }
+          ]
         }
       ]
     }
