@@ -1,4 +1,4 @@
-E3DC Farm 0.8.1 für IP-Symcon 9.0
+E3DC Farm 0.8.2 für IP-Symcon 9.0
 
 Installation
 1. Auf dem Rechner, auf dem der IP-Symcon-Dienst läuft, den Ordner
@@ -165,3 +165,11 @@ Der Schalter ist standardmäßig eingeschaltet. Ausschalten und
 und die LAN-Suche. Die letzten Werte und Tageszähler bleiben
 erhalten. Die deaktivierte Zeit wird beim Einschalten nicht
 nachträglich in Tages-kWh umgerechnet.
+
+Ersteinrichtung mit LAN-Suche
+In „Netzwerk und Verbindung“ auf „E3/DC one suchen und einrichten“
+klicken. Bei leeren Adressfeldern sucht der Symcon-Server in seinen
+aktiven lokalen IPv4-/24-Netzen. Bei exakt zwei eindeutig erkannten
+one und einem eindeutigen Farmmaster werden beide Adressen gespeichert.
+Bei getrennten Netzen oder VLANs bei Bedarf das Suchnetz vorgeben.
+Unter „Diagnose und Status → LAN-Einrichtung“ steht die Bestätigung.

@@ -365,16 +365,20 @@ PHP;
         if ($network === '') {
             $network = $savedMaster;
         }
-        if ($network === '') {
-            return ['message' => 'Bitte im Feld LAN-Suchnetz das eigene Netz eingeben, z. B. 192.168.178.0/24.'];
+        $localPrefixes = $this->localIPv4Prefixes();
+        $prefixes = $localPrefixes;
+        if ($network !== '') {
+            $address = preg_replace('~\s*/\s*24$~', '', $network);
+            if (preg_match('/^([0-9]{1,3}\.){2}[0-9]{1,3}\.?$/', $address)) {
+                $address = rtrim($address, '.') . '.0';
+            }
+            if (!filter_var($address, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+                return ['message' => 'Das LAN-Suchnetz muss eine IPv4-Adresse oder ein IPv4-/24-Netz sein. Eingegeben: ' . $network];
+            }
+            $prefixes = [substr($address, 0, strrpos($address, '.') + 1)];
         }
-
-        $address = preg_replace('~\s*/\s*24$~', '', $network);
-        if (preg_match('/^([0-9]{1,3}\.){2}[0-9]{1,3}\.?$/', $address)) {
-            $address = rtrim($address, '.') . '.0';
-        }
-        if (!filter_var($address, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
-            return ['message' => 'Das LAN-Suchnetz muss eine IPv4-Adresse oder ein IPv4-/24-Netz sein. Eingegeben: ' . $network];
+        if ($prefixes === []) {
+            return ['message' => 'Symcon hat keine nutzbare lokale IPv4-Adresse gefunden. Bei Docker oder VLAN das LAN-Suchnetz angeben.'];
         }
         if ($port === 0) {
             $port = $this->ReadPropertyInteger('Port');
@@ -386,15 +390,78 @@ PHP;
         if ($unit < 0 || $unit > 255) {
             return ['message' => 'Modbus Unit-ID zwischen 0 und 255 eingeben.'];
         }
-        $prefix = substr($address, 0, strrpos($address, '.') + 1);
-        if (!preg_match('/^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)/', $address)) {
-            if ((int) explode('.', $address, 2)[0] < 1 || (int) explode('.', $address, 2)[0] >= 224
-                || !filter_var($savedMaster, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)
-                || !str_starts_with($savedMaster, $prefix)
-                || !$this->verifyMasterForDiscovery($savedMaster, $port, $unit)) {
-                return ['message' => 'Für dieses Netz zuerst die Farmmaster-IP im selben /24 speichern. Der Farmmaster muss per E3/DC Modbus erreichbar sein.'];
+        $masterIp = $savedMaster !== '' ? $savedMaster : trim($master);
+        $matches = [];
+        $searched = [];
+        foreach ($prefixes as $prefix) {
+            if (!in_array($prefix, $localPrefixes, true)
+                && !preg_match('/^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)/', $prefix)
+                && (!filter_var($savedMaster, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)
+                    || !str_starts_with($savedMaster, $prefix)
+                    || !$this->verifyMasterForDiscovery($savedMaster, $port, $unit))) {
+                return ['message' => 'Dieses Suchnetz muss am Symcon-Server anliegen oder einen gespeicherten, erreichbaren Farmmaster enthalten.'];
+            }
+            $searched[] = $prefix . '0/24';
+            $matches += $this->scanOneSubnet($prefix, $port, $unit, $masterIp === '');
+        }
+        if ($matches === []) {
+            return ['message' => sprintf('Kein E3/DC one gefunden. Geprüft: %s (Port %d, Unit-ID %d).',
+                implode(', ', $searched), $port, $unit)];
+        }
+
+        $lines = [];
+        foreach ($matches as $host => $device) {
+            $lines[] = $host . ' — E3/DC one — ' . $device['serial'];
+        }
+        $summary = implode("\n", $lines);
+        if (count($matches) !== 2) {
+            return ['message' => $summary . "\n\nFür die automatische Zuordnung müssen genau zwei one gefunden werden."];
+        }
+        $serials = array_column($matches, 'serial');
+        if (in_array('', $serials, true) || count(array_unique($serials)) !== 2) {
+            return ['message' => $summary . "\n\nDie beiden Geräte melden keine eindeutigen Seriennummern."];
+        }
+        if ($masterIp === '') {
+            $farmMasters = array_keys(array_filter($matches, static fn (array $device): bool => $device['farmMeter']));
+            if (count($farmMasters) === 1) {
+                $masterIp = $farmMasters[0];
             }
         }
+        if (!isset($matches[$masterIp])) {
+            return ['message' => $summary . "\n\nDer Farmmaster konnte nicht eindeutig zugeordnet werden. Bitte die Farmmaster-IP hinterlegen."];
+        }
+
+        $secondIp = array_key_first(array_diff_key($matches, [$masterIp => true]));
+        if (substr($masterIp, 0, strrpos($masterIp, '.')) !== substr($secondIp, 0, strrpos($secondIp, '.'))) {
+            return ['message' => $summary . "\n\nDie Geräte liegen in unterschiedlichen Suchnetzen. Bitte das Farmnetz angeben."];
+        }
+        return [
+            'message' => "Farmmaster: $masterIp – " . $matches[$masterIp]['serial']
+                . "\nZweiter one: $secondIp – " . $matches[$secondIp]['serial'],
+            'master' => $masterIp,
+            'second' => $secondIp,
+            'port' => $port,
+            'unit' => $unit
+        ];
+    }
+
+    private function localIPv4Prefixes(): array
+    {
+        $prefixes = [];
+        foreach (Sys_GetNetworkInfo() as $adapter) {
+            $address = $adapter['IP'] ?? '';
+            if (!is_string($address) || !filter_var($address, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)
+                || preg_match('/^(0|127|169\.254)\./', $address)
+                || (int) explode('.', $address, 2)[0] >= 224) {
+                continue;
+            }
+            $prefixes[substr($address, 0, strrpos($address, '.') + 1)] = true;
+        }
+        return array_keys($prefixes);
+    }
+
+    private function scanOneSubnet(string $prefix, int $port, int $unit, bool $identifyMaster): array
+    {
         $matches = [];
         foreach (array_chunk(range(1, 254), 24) as $batch) {
             $pending = [];
@@ -433,7 +500,7 @@ PHP;
                             if (strcasecmp($model, 'one') === 0) {
                                 $serial = $this->decodeText(array_slice($identity, 16, 16));
                                 $matches[$host] = ['serial' => $serial, 'farmMeter' => false];
-                                if ($savedMaster === '' && trim($master) === '') {
+                                if ($identifyMaster) {
                                     usleep(110000);
                                     $meters = $this->readRegisters($socket, $unit, 3, 40105, 32);
                                     $matches[$host]['farmMeter'] = in_array(5, array_filter($meters,
@@ -454,43 +521,7 @@ PHP;
             }
         }
 
-        if ($matches === []) {
-            return ['message' => sprintf('Kein E3/DC one in %s0/24 gefunden (Port %d, Unit-ID %d). Modbus/TCP im E3/DC Simple Mode prüfen.',
-                $prefix, $port, $unit)];
-        }
-
-        $lines = [];
-        foreach ($matches as $host => $device) {
-            $lines[] = $host . ' — E3/DC one — ' . $device['serial'];
-        }
-        $summary = implode("\n", $lines);
-        if (count($matches) !== 2) {
-            return ['message' => $summary . "\n\nFür die automatische Zuordnung müssen genau zwei one gefunden werden."];
-        }
-        $serials = array_column($matches, 'serial');
-        if (in_array('', $serials, true) || count(array_unique($serials)) !== 2) {
-            return ['message' => $summary . "\n\nDie beiden Geräte melden keine eindeutigen Seriennummern."];
-        }
-        $masterIp = $savedMaster !== '' ? $savedMaster : trim($master);
-        if ($masterIp === '') {
-            $farmMasters = array_keys(array_filter($matches, static fn (array $device): bool => $device['farmMeter']));
-            if (count($farmMasters) === 1) {
-                $masterIp = $farmMasters[0];
-            }
-        }
-        if (!isset($matches[$masterIp])) {
-            return ['message' => $summary . "\n\nDer Farmmaster konnte nicht eindeutig zugeordnet werden. Bitte die Farmmaster-IP hinterlegen."];
-        }
-
-        $secondIp = array_key_first(array_diff_key($matches, [$masterIp => true]));
-        return [
-            'message' => "Farmmaster: $masterIp – " . $matches[$masterIp]['serial']
-                . "\nZweiter one: $secondIp – " . $matches[$secondIp]['serial'],
-            'master' => $masterIp,
-            'second' => $secondIp,
-            'port' => $port,
-            'unit' => $unit
-        ];
+        return $matches;
     }
 
     private function verifyMasterForDiscovery(string $host, int $port, int $unit): bool

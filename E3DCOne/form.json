@@ -6,95 +6,139 @@
       "caption": "Instanz aktiv"
     },
     {
-      "type": "ValidationTextBox",
-      "name": "Host",
-      "caption": "IP-Adresse des Farmmasters"
+      "type": "ExpansionPanel",
+      "caption": "Netzwerk und Verbindung",
+      "items": [
+        {
+          "type": "Label",
+          "caption": "Für die Ersteinrichtung die LAN-Suche starten. Symcon erkennt das lokale Netz und speichert zwei eindeutig zugeordnete Geräte automatisch."
+        },
+        {
+          "type": "Button",
+          "caption": "E3/DC one suchen und einrichten",
+          "onClick": "echo E3DCF_DiscoverLAN($id, $LanNetwork, $Host, $Port, $Unit);"
+        },
+        {
+          "type": "ValidationTextBox",
+          "name": "Host",
+          "caption": "IP-Adresse des Farmmasters"
+        },
+        {
+          "type": "ValidationTextBox",
+          "name": "SecondHost",
+          "caption": "IP-Adresse des zweiten one"
+        },
+        {
+          "type": "ValidationTextBox",
+          "name": "LanNetwork",
+          "caption": "LAN-Suchnetz (optional, z. B. 192.168.178.0/24)"
+        },
+        {
+          "type": "NumberSpinner",
+          "name": "Port",
+          "caption": "Modbus-TCP-Port",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        {
+          "type": "NumberSpinner",
+          "name": "Unit",
+          "caption": "Modbus Unit-ID",
+          "minimum": 0,
+          "maximum": 255
+        },
+        {
+          "type": "NumberSpinner",
+          "name": "Interval",
+          "caption": "Abfrageintervall (Sekunden)",
+          "minimum": 5,
+          "maximum": 3600
+        }
+      ],
+      "expanded": true
     },
     {
-      "type": "ValidationTextBox",
-      "name": "SecondHost",
-      "caption": "IP-Adresse des zweiten one"
+      "type": "ExpansionPanel",
+      "caption": "Farm und Wallbox",
+      "items": [
+        {
+          "type": "Label",
+          "caption": "Die Zählerindizes stehen unter „Leistungsmesser“. Der Farmzähler hat Typ 5, der externe Wärmepumpenzähler Typ 4."
+        },
+        {
+          "type": "NumberSpinner",
+          "name": "FarmConsumptionMeter",
+          "caption": "Index Farm-Verbrauchszähler (−1: aus)",
+          "minimum": -1,
+          "maximum": 7
+        },
+        {
+          "type": "NumberSpinner",
+          "name": "HeatPumpMeter",
+          "caption": "Index Wärmepumpenzähler (−1: aus)",
+          "minimum": -1,
+          "maximum": 7
+        },
+        {
+          "type": "CheckBox",
+          "name": "ReadWallbox",
+          "caption": "Wallbox am Farmmaster auslesen"
+        },
+        {
+          "type": "NumberSpinner",
+          "name": "WallboxSlot",
+          "caption": "Wallbox-Slot für die Einzelvariablen",
+          "minimum": 0,
+          "maximum": 7
+        }
+      ],
+      "expanded": false
     },
     {
-      "type": "ValidationTextBox",
-      "name": "LanNetwork",
-      "caption": "LAN-Suchnetz (z. B. 192.168.178.0/24, leer = Netz der Farmmaster-IP)"
+      "type": "ExpansionPanel",
+      "caption": "Speicher und Prognose",
+      "items": [
+        {
+          "type": "Label",
+          "caption": "Ersatzkapazitäten in Wh nur eintragen, wenn das Gerät keine gültige Kapazität meldet. Die Prognosequelle liefert kWh."
+        },
+        {
+          "type": "NumberSpinner",
+          "name": "CapacityFallbackWh",
+          "caption": "Nutzbare Speicherkapazität als Ersatzwert (Wh, 0 = aus)",
+          "minimum": 0,
+          "maximum": 1000000
+        },
+        {
+          "type": "NumberSpinner",
+          "name": "SecondCapacityFallbackWh",
+          "caption": "Nutzbare Ersatzkapazität des zweiten one (Wh, 0 = aus)",
+          "minimum": 0,
+          "maximum": 1000000
+        },
+        {
+          "type": "SelectVariable",
+          "name": "ForecastSource",
+          "caption": "Symcon-Variable für Solarprognose heute (kWh)"
+        }
+      ],
+      "expanded": false
     },
     {
-      "type": "NumberSpinner",
-      "name": "Port",
-      "caption": "Modbus-TCP-Port",
-      "minimum": 1,
-      "maximum": 65535
-    },
-    {
-      "type": "NumberSpinner",
-      "name": "Unit",
-      "caption": "Modbus Unit-ID",
-      "minimum": 0,
-      "maximum": 255
-    },
-    {
-      "type": "NumberSpinner",
-      "name": "Interval",
-      "caption": "Abfrageintervall (Sekunden)",
-      "minimum": 5,
-      "maximum": 3600
-    },
-    {
-      "type": "CheckBox",
-      "name": "ReadWallbox",
-      "caption": "Wallbox-Slots prüfen (am Farmmaster aktivieren)"
-    },
-    {
-      "type": "NumberSpinner",
-      "name": "WallboxSlot",
-      "caption": "Wallbox-Slot für die Einzelvariablen",
-      "minimum": 0,
-      "maximum": 7
-    },
-    {
-      "type": "NumberSpinner",
-      "name": "FarmConsumptionMeter",
-      "caption": "Index Farm-Verbrauchszähler (−1: aus)",
-      "minimum": -1,
-      "maximum": 7
-    },
-    {
-      "type": "NumberSpinner",
-      "name": "HeatPumpMeter",
-      "caption": "Index Wärmepumpenzähler (−1: aus)",
-      "minimum": -1,
-      "maximum": 7
-    },
-    {
-      "type": "SelectInstance",
-      "name": "SecondOne",
-      "caption": "Vorhandene zweite Symcon-Instanz (nur ohne zweite IP-Adresse)"
-    },
-    {
-      "type": "SelectVariable",
-      "name": "ForecastSource",
-      "caption": "Symcon-Variable für Solarprognose heute (kWh)"
-    },
-    {
-      "type": "NumberSpinner",
-      "name": "CapacityFallbackWh",
-      "caption": "Nutzbare Speicherkapazität als Ersatzwert (Wh, 0 = aus)",
-      "minimum": 0,
-      "maximum": 1000000
-    },
-    {
-      "type": "NumberSpinner",
-      "name": "SecondCapacityFallbackWh",
-      "caption": "Nutzbare Ersatzkapazität des zweiten one (Wh, 0 = aus)",
-      "minimum": 0,
-      "maximum": 1000000
-    },
-    {
-      "type": "Button",
-      "caption": "E3/DC one suchen und einrichten",
-      "onClick": "echo E3DCF_DiscoverLAN($id, $LanNetwork, $Host, $Port, $Unit);"
+      "type": "ExpansionPanel",
+      "caption": "Bestehende Einrichtung",
+      "items": [
+        {
+          "type": "Label",
+          "caption": "Diese Einstellung gilt nur, solange keine zweite IP-Adresse hinterlegt ist."
+        },
+        {
+          "type": "SelectInstance",
+          "name": "SecondOne",
+          "caption": "Zweite Symcon-Instanz (ältere Einrichtung)"
+        }
+      ],
+      "expanded": false
     }
   ],
   "actions": [
