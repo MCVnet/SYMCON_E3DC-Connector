@@ -1,4 +1,4 @@
-E3DC Farm 0.2 für IP-Symcon 9.0
+E3DC Farm 0.3 für IP-Symcon 9.0
 
 Installation
 1. Auf dem Rechner, auf dem der IP-Symcon-Dienst läuft, den Ordner
@@ -29,7 +29,7 @@ Anzeigen und Grenzen
   Die Slot-Erkennung ermittelt kein Wallbox-Modell.
 - Bei Kommunikationsfehlern bleiben die zuletzt empfangenen Werte
   sichtbar. „Letzte erfolgreiche Abfrage“ zeigt ihren Zeitstand.
-- Version 0.2 sendet ausschließlich Modbus-Leseanfragen im
+- Version 0.3 sendet ausschließlich Modbus-Leseanfragen im
   E3/DC Simple Mode. Optionale Detailgruppen stehen als JSON
   in je einer Stringvariablen. Geräteinformationen und die bisherigen
   Leistungswerte sind separate Variablen.
@@ -45,3 +45,13 @@ Anzeigen und Grenzen
 
 Registerreferenz
 E3/DC Modbus/TCP-Schnittstelle, V2.80, Abschnitte 3.1 und 4.
+
+Farm-Verbrauch
+Am Farmmaster den Index des Farmzählers (Typ 5) und den Index
+des Wärmepumpenzählers (Typ 4) eintragen, beispielsweise 0 und 4.
+Die Zuordnung setzt voraus, dass der Farmzähler den Gesamtverbrauch
+einschließlich Wärmepumpe misst. Die Summe seiner drei Phasen ergibt
+den Gesamtverbrauch. Die Summe der Wärmepumpenphasen wird davon
+für den Hausverbrauch abgezogen. Die Werte gelten nur, wenn
+„Farm-Verbrauchswerte aktuell“ aktiv ist. „Hausverbrauch laut one“
+zeigt weiterhin den Rohwert des Geräts aus Register 40072.

@@ -17,7 +17,7 @@ class E3DCOne extends IPSModule
     private const POWER = [
         'PV' => 'PV-Leistung (W)',
         'Battery' => 'Batterieleistung (W)',
-        'House' => 'Hausverbrauch (W)',
+        'House' => 'Hausverbrauch laut one (W)',
         'Grid' => 'Netzleistung (W)',
         'External' => 'Weitere Einspeiser (W)',
         'WallboxPower' => 'Wallbox-Leistung (W)',
@@ -32,6 +32,8 @@ class E3DCOne extends IPSModule
         $this->RegisterPropertyInteger('Unit', 1);
         $this->RegisterPropertyInteger('Interval', 15);
         $this->RegisterPropertyBoolean('ReadWallbox', false);
+        $this->RegisterPropertyInteger('FarmConsumptionMeter', -1);
+        $this->RegisterPropertyInteger('HeatPumpMeter', -1);
         $this->RegisterTimer('PollTimer', 0, 'E3DCF_Poll($_IPS["TARGET"]);');
 
         $position = 0;
@@ -52,6 +54,10 @@ class E3DCOne extends IPSModule
         $this->RegisterVariableInteger('Emergency', 'Notstromstatus (Rohwert)', '', 21);
         $this->RegisterVariableString('EfficiencyRaw', 'Autarkie und Eigenverbrauch (Register 40082)', '', 22);
         $this->RegisterVariableString('EMSFlags', 'EMS-Status (Details)', '', 23);
+        $this->RegisterVariableInteger('FarmConsumption', 'Farm-Gesamtverbrauch (W)', '', 31);
+        $this->RegisterVariableInteger('HeatPumpConsumption', 'Wärmepumpe (W)', '', 32);
+        $this->RegisterVariableInteger('FarmHouseConsumption', 'Hausverbrauch ohne Wärmepumpe (W)', '', 33);
+        $this->RegisterVariableBoolean('FarmConsumptionValid', 'Farm-Verbrauchswerte aktuell', '', 34);
         $position = 24;
         foreach (self::EXTRA_GROUPS as $ident => $label) {
             $this->RegisterVariableString($ident, $label, '', $position++);
@@ -77,6 +83,7 @@ class E3DCOne extends IPSModule
         }
 
         try {
+            $this->SetValue('FarmConsumptionValid', false);
             $host = trim($this->ReadPropertyString('Host'));
             $port = $this->ReadPropertyInteger('Port');
             $unit = $this->ReadPropertyInteger('Unit');
@@ -220,6 +227,11 @@ class E3DCOne extends IPSModule
             }
         }
         $this->publishJson('PowerMeters', $meterData);
+        $farm = $this->ReadPropertyInteger('FarmConsumptionMeter');
+        $heatPump = $this->ReadPropertyInteger('HeatPumpMeter');
+        if ($farm !== -1 || $heatPump !== -1) {
+            $this->publishFarmConsumption($meterData, $farm, $heatPump, $notes);
+        }
 
         $battery = $read('Batteriegrenzen und Speicherenergie', 40202, 8);
         $batteryData = [];
@@ -271,6 +283,23 @@ class E3DCOne extends IPSModule
         $this->publishJson('Inverters', $inverters);
 
         $this->publishJson('ReadNotes', $notes);
+    }
+
+    private function publishFarmConsumption(array $meters, int $farm, int $heatPump, array &$notes): void
+    {
+        $farmMeter = $meters['Index ' . $farm] ?? [];
+        $heatPumpMeter = $meters['Index ' . $heatPump] ?? [];
+        if (($farmMeter['Typ'] ?? null) !== 5 || ($heatPumpMeter['Typ'] ?? null) !== 4) {
+            $notes['Farm-Verbrauch'] = 'Farmzähler (Typ 5) und Wärmepumpenzähler (Typ 4) zuordnen.';
+            return;
+        }
+
+        $total = $farmMeter['L1 (W)'] + $farmMeter['L2 (W)'] + $farmMeter['L3 (W)'];
+        $heat = $heatPumpMeter['L1 (W)'] + $heatPumpMeter['L2 (W)'] + $heatPumpMeter['L3 (W)'];
+        $this->SetValue('FarmConsumption', $total);
+        $this->SetValue('HeatPumpConsumption', $heat);
+        $this->SetValue('FarmHouseConsumption', $total - $heat);
+        $this->SetValue('FarmConsumptionValid', true);
     }
 
     private function signed16(int $value): int
