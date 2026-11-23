@@ -1,4 +1,4 @@
-E3DC Farm 0.7.4 für IP-Symcon 9.0
+E3DC Farm 0.7.5 für IP-Symcon 9.0
 
 Installation
 1. Auf dem Rechner, auf dem der IP-Symcon-Dienst läuft, den Ordner
@@ -123,3 +123,5 @@ Der Suchknopf speichert bei genau zwei unterschiedlichen one die
 Zuordnung automatisch und stößt eine Abfrage an. Als Farmmaster
 gilt die gespeicherte Adresse oder bei der Ersteinrichtung der
 einzige Teilnehmer mit Farmzähler, sofern eindeutig erkennbar.
+
+Der Status der automatischen Übernahme steht unter „LAN-Einrichtung“.

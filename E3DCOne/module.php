@@ -100,6 +100,7 @@ class E3DCOne extends IPSModule
         $this->RegisterVariableInteger('SecondSOC', 'Zweiter one Batterieladezustand (%)', '', 64);
         $this->RegisterVariableFloat('SecondCapacity', 'Zweiter one Speicherkapazität (kWh)', '', 65);
         $this->RegisterVariableBoolean('SecondOneValid', 'Zweiter one erreichbar', '', 66);
+        $this->RegisterVariableString('LanSetupStatus', 'LAN-Einrichtung', '', 67);
         $dayPosition = 53;
         foreach (self::DAILY as $ident => $label) {
             $this->RegisterVariableFloat($ident, $label, '', $dayPosition++);
@@ -127,12 +128,56 @@ class E3DCOne extends IPSModule
 
     public function DiscoverLAN(string $network, string $master, int $port, int $unit): string
     {
-        return $this->findOneDevices($network, $master, $port, $unit)['message'];
+        $result = $this->findOneDevices($network, $master, $port, $unit);
+        if (!isset($result['second'])) {
+            return $result['message'];
+        }
+        $statusId = $this->GetIDForIdent('LanSetupStatus');
+        $this->SetValue('LanSetupStatus', 'IP-Adressen gefunden. Übernahme läuft.');
+        $script = <<<'PHP'
+$id = $_IPS['OneInstance'];
+$statusId = $_IPS['OneSetupStatus'];
+if (!IPS_InstanceExists($id) || !IPS_VariableExists($statusId)) {
+    return;
+}
+$settings = [
+    'Host' => $_IPS['OneMaster'],
+    'SecondHost' => $_IPS['OneSecond'],
+    'Port' => $_IPS['OnePort'],
+    'Unit' => $_IPS['OneUnit']
+];
+foreach ($settings as $property => $value) {
+    if (!IPS_SetProperty($id, $property, $value)) {
+        SetValue($statusId, 'IP-Adressen konnten nicht gespeichert werden.');
+        return;
+    }
+}
+if (!IPS_ApplyChanges($id)) {
+    SetValue($statusId, 'IP-Adressen konnten nicht übernommen werden.');
+    return;
+}
+SetValue($statusId, 'IP-Adressen übernommen: ' . $settings['Host'] . ' und ' . $settings['SecondHost']);
+E3DCF_Poll($id);
+PHP;
+        $started = IPS_RunScriptTextEx($script, [
+            'OneInstance' => $this->InstanceID,
+            'OneSetupStatus' => $statusId,
+            'OneMaster' => $result['master'],
+            'OneSecond' => $result['second'],
+            'OnePort' => $result['port'],
+            'OneUnit' => $result['unit']
+        ]);
+        if (!$started) {
+            $this->SetValue('LanSetupStatus', 'Automatische Übernahme konnte nicht gestartet werden.');
+            return $this->GetValue('LanSetupStatus');
+        }
+
+        return $result['message'] . "\n\nAutomatische Übernahme gestartet. Das Ergebnis steht unter LAN-Einrichtung.";
     }
 
     public function DiscoverLANSetup(string $network, string $master, int $port, int $unit): string
     {
-        return json_encode($this->findOneDevices($network, $master, $port, $unit),
+        return json_encode(['message' => $this->DiscoverLAN($network, $master, $port, $unit)],
             JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR);
     }
 
