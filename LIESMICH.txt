@@ -6,10 +6,10 @@ Einrichtung
   Modul-ID, Einstellungen und Variablen-IDs.
 - Lokales RSCP aktivieren, Benutzer local.user, Benutzerpasswort und
   RSCP-Verschlüsselungsschlüssel hinterlegen und übernehmen.
-- Hauptgerät und optional zweites Farmgerät per IP zuordnen. Die
-  LAN-Suche prüft erreichbare RSCP-Endpunkte und trägt eindeutige
-  Treffer ein. Einzelgeräte verwenden üblicherweise Port 5033,
-  der Farmcontroller üblicherweise Port 5034.
+- „Farm“ wählen, um die LAN-Suche zu starten. Die Suche prüft den
+  Geräteport (üblicherweise 5033) und den Farmcontroller-Port
+  (üblicherweise 5034) unabhängig voneinander. Zwei eindeutig
+  zugeordnete Farmadressen werden automatisch gespeichert.
 - „Jetzt auslesen“ aktualisiert Live-Werte und Tagessummen.
   Der Farmcontroller wird separat abgefragt. Sein Wert wird nicht zu
   Einzelgeräten addiert.

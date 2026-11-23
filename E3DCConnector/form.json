@@ -79,11 +79,12 @@
               "caption": "Farm",
               "value": "farm"
             }
-          ]
+          ],
+          "onChange": "if ($OperatingMode === 'farm') { echo E3DCF_DiscoverLAN($id, $LanNetwork ?? '', $Host ?? '', 0, 0, 'farm'); }"
         },
         {
           "type": "Label",
-          "caption": "Zuerst die lokalen RSCP-Zugangsdaten übernehmen. Die LAN-Suche bestätigt Geräte per RSCP und trägt eindeutige Treffer ein."
+          "caption": "Zuerst die RSCP-Zugangsdaten übernehmen. Bei Auswahl von „Farm“ sucht Symcon nach Farmcontroller und Farmgerät und speichert eine eindeutige Zuordnung."
         },
         {
           "type": "ValidationTextBox",
@@ -93,7 +94,7 @@
         {
           "type": "Button",
           "caption": "Geräte im LAN suchen",
-          "onClick": "echo E3DCF_DiscoverLAN($id, $LanNetwork, $Host, 0, 0, 'auto');"
+          "onClick": "echo E3DCF_DiscoverLAN($id, $LanNetwork, $Host, 0, 0, $OperatingMode);"
         },
         {
           "type": "ExpansionPanel",

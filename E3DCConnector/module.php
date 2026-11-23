@@ -542,6 +542,7 @@ class E3DCConnector extends IPSModule
         $mode = in_array($mode, ['auto', 'standalone', 'farm'], true) ? $mode : $this->ReadPropertyString('OperatingMode');
         $result = $this->findDevices($network, $master, $port, $unit, $mode);
         if (!isset($result['master'])) {
+            $this->setGroupedValue('LanSetupStatus', $result['message']);
             return $result['message'];
         }
         $statusId = $this->groupedVariableID('LanSetupStatus');
@@ -585,7 +586,9 @@ PHP;
             return $this->getGroupedValue('LanSetupStatus');
         }
 
-        $this->UpdateFormField('OperatingMode', 'value', $result['mode']);
+        if ($mode !== $result['mode']) {
+            $this->UpdateFormField('OperatingMode', 'value', $result['mode']);
+        }
         $this->UpdateFormField('Host', 'value', $result['master']);
         if ($result['second'] !== '') {
             $this->UpdateFormField('SecondHost', 'value', $result['second']);
@@ -631,6 +634,8 @@ PHP;
             return ['message' => 'RSCP-Port zwischen 1 und 65535 eingeben.'];
         }
         $masterIp = $savedMaster !== '' ? $savedMaster : trim($master);
+        $farmPort = $this->ReadPropertyInteger('FarmRscpPort');
+        $searchFarm = $mode !== 'standalone' && $farmPort > 0 && $farmPort <= 65535 && $farmPort !== $port;
         $matches = [];
         $searched = [];
         foreach ($prefixes as $prefix) {
@@ -638,20 +643,29 @@ PHP;
                 && !preg_match('/^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)/', $prefix)
                 && (!filter_var($savedMaster, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)
                     || !str_starts_with($savedMaster, $prefix)
-                    || !$this->verifyMasterForDiscovery($savedMaster, $port, $unit))) {
-                return ['message' => 'Dieses Suchnetz muss am Symcon-Server anliegen oder einen gespeicherten, erreichbaren Farmmaster enthalten.'];
+                    || ($this->discoverIdentity($savedMaster, $port) === null
+                        && (!$searchFarm || !$this->discoverFarmController($savedMaster, $farmPort))))) {
+                return ['message' => 'Dieses Suchnetz muss am Symcon-Server anliegen oder ein gespeichertes, erreichbares E3/DC-Gerät enthalten.'];
             }
             $searched[] = $prefix . '0/24';
-            $matches += $this->scanDeviceSubnet($prefix, $port, $unit, $mode !== 'standalone');
+            $devices = $this->scanDeviceSubnet($prefix, $port, false);
+            if ($searchFarm) {
+                foreach ($this->scanDeviceSubnet($prefix, $farmPort, true) as $address => $controller) {
+                    $devices[$address] = array_replace($controller, $devices[$address] ?? [], ['farmMeter' => true]);
+                }
+            }
+            $matches += $devices;
         }
         if ($matches === []) {
-            return ['message' => sprintf('Kein E3/DC-Gerät mit erfolgreicher RSCP-Anmeldung gefunden. Geprüft: %s (RSCP-Port %d).',
-                implode(', ', $searched), $port)];
+            $ports = $searchFarm ? $port . ' und ' . $farmPort : (string) $port;
+            return ['message' => 'Kein E3/DC-Gerät mit erfolgreicher RSCP-Abfrage gefunden. Suchnetze: '
+                . implode(', ', $searched) . '. RSCP-Ports: ' . $ports . '.'];
         }
 
         $lines = [];
         foreach ($matches as $host => $device) {
-            $lines[] = $host . ' — E3/DC ' . ($device['model'] ?: '(Modell unbekannt)') . ' — ' . $device['serial'];
+            $lines[] = $host . ($device['farmMeter'] ? ' – E3/DC Farmcontroller' : ' – E3/DC Gerät')
+                . ($device['serial'] !== '' ? ' – ' . $device['serial'] : '');
         }
         $summary = implode("\n", $lines);
         return $this->classifyDiscoveredDevices($matches, $masterIp, $mode, $port, $unit, $summary);
@@ -660,6 +674,9 @@ PHP;
     private function classifyDiscoveredDevices(array $matches, string $masterIp, string $mode, int $port, int $unit, string $summary): array
     {
         $farmMasters = array_keys(array_filter($matches, static fn (array $device): bool => $device['farmMeter']));
+        if ($mode === 'farm' && count($matches) === 1) {
+            return ['message' => $summary . "\n\nNur ein RSCP-Endpunkt bestätigt. Beide Farmgeräte müssen erreichbar sein, bevor die Zuordnung gespeichert wird."];
+        }
         if ($mode === 'standalone' || count($matches) === 1) {
             $host = $masterIp !== '' ? $masterIp : array_key_first($matches);
             if (!isset($matches[$host]) || (count($matches) > 1 && $masterIp === '')) {
@@ -677,12 +694,13 @@ PHP;
             return ['message' => $summary . "\n\nBitte Hauptgerät und gegebenenfalls das zweite Farmgerät anhand der Treffer eintragen."];
         }
         $serials = array_column($matches, 'serial');
-        if (in_array('', $serials, true) || count(array_unique($serials)) !== 2) {
-            return ['message' => $summary . "\n\nDie beiden Geräte melden keine eindeutigen Seriennummern."];
+        if ($serials[0] !== '' && $serials[0] === $serials[1]) {
+            return ['message' => $summary . "\n\nBeide Adressen melden dieselbe Seriennummer."];
         }
         if (count($farmMasters) === 1) {
             $masterIp = $farmMasters[0];
-        } elseif ($mode !== 'farm' && (!$this->hasFarmPeer() || !isset($matches[trim($this->ReadPropertyString('SecondHost'))]))) {
+        } elseif (!$this->hasFarmPeer() || !isset($matches[trim($this->ReadPropertyString('SecondHost'))])
+            || $masterIp === trim($this->ReadPropertyString('SecondHost'))) {
             return ['message' => $summary . "\n\nZwei Geräte gefunden, aber kein eindeutiger Farmmaster. Bitte die Betriebsart manuell wählen."];
         }
         if (!isset($matches[$masterIp])) {
@@ -719,7 +737,7 @@ PHP;
         return array_keys($prefixes);
     }
 
-    private function scanDeviceSubnet(string $prefix, int $port, int $unit, bool $identifyMaster): array
+    private function scanDeviceSubnet(string $prefix, int $port, bool $farmController): array
     {
         $matches = [];
         foreach (array_chunk(range(1, 254), 24) as $batch) {
@@ -748,25 +766,16 @@ PHP;
                             if (@stream_socket_get_name($socket, true) === false) {
                                 continue;
                             }
-                            $identity = $this->discoverIdentity($host, $port);
-                            if ($identity === null) {
-                                continue;
-                            }
-                            $identity['model'] = '';
-                            $identity['farmMeter'] = false;
-                            $farmPort = $this->ReadPropertyInteger('FarmRscpPort');
-                            $credentials = $this->rscpCredentials();
-                            if ($identifyMaster && $farmPort !== $port && $credentials !== null) {
-                                try {
-                                    [$user, $password, $key] = $credentials;
-                                    $day = (new DateTimeImmutable(date('Y-m-d'), new DateTimeZone('UTC')))->getTimestamp();
-                                    $data = (new \E3DCConnector\FarmRscp($key))->readDayEnergyWh($host, $farmPort, $user, $password, $day);
-                                    $identity['farmMeter'] = isset($data['DB_DC_POWER']);
-                                } catch (RuntimeException) {
-                                    // This address has no accessible farm history endpoint.
+                            if ($farmController) {
+                                if ($this->discoverFarmController($host, $port)) {
+                                    $matches[$host] = ['serial' => '', 'farmMeter' => true];
+                                }
+                            } else {
+                                $identity = $this->discoverIdentity($host, $port);
+                                if ($identity !== null) {
+                                    $matches[$host] = $identity + ['farmMeter' => false];
                                 }
                             }
-                            $matches[$host] = $identity;
                         } catch (RuntimeException $error) {
                             // The port can be open on devices that do not answer as an E3/DC RSCP endpoint.
                         } finally {
@@ -784,9 +793,20 @@ PHP;
         return $matches;
     }
 
-    private function verifyMasterForDiscovery(string $host, int $port, int $unit): bool
+    private function discoverFarmController(string $host, int $port): bool
     {
-        return $this->discoverIdentity($host, $port) !== null;
+        $credentials = $this->rscpCredentials();
+        if ($credentials === null) {
+            return false;
+        }
+        [$user, $password, $key] = $credentials;
+        try {
+            $day = (new DateTimeImmutable(date('Y-m-d'), new DateTimeZone('UTC')))->getTimestamp();
+            $energy = (new \E3DCConnector\FarmRscp($key))->readDayEnergyWh($host, $port, $user, $password, $day);
+            return isset($energy['DB_DC_POWER']);
+        } catch (RuntimeException) {
+            return false;
+        }
     }
 
     private function discoverIdentity(string $host, int $port): ?array
