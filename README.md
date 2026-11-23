@@ -1,5 +1,5 @@
-# SYMCON E3DC Connector
+# E3/DC Connector
 
-Leseversion 0.8.6 für IP-Symcon 9.0. Richtet zwei E3/DC one über eine Symcon-Instanz ein und kann den Solar-Tagesertrag direkt vom lokalen Farmcontroller lesen.
+IP-Symcon-Modul für die lokale Anbindung von E3/DC-Geräten als Einzelgerät oder Farm. Es liest Messwerte und Zubehör über Modbus/TCP und kann lokale RSCP-Tagessummen übernehmen. Unterstützte Steuerbefehle lassen sich in der Instanz freigeben.
 
 [Installation und Funktionsumfang](LIESMICH.txt)

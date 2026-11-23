@@ -8,7 +8,7 @@ final class E3DCInstanceUnavailable extends ErrorException
 {
 }
 
-class E3DCOne extends IPSModule
+class E3DCConnector extends IPSModule
 {
     private const EXTRA_GROUPS = [
         'DCStrings' => 'PV-Strings',
@@ -181,6 +181,11 @@ class E3DCOne extends IPSModule
     public function ApplyChanges()
     {
         parent::ApplyChanges();
+        if (in_array(IPS_GetName($this->InstanceID), [
+            'E3/DC Hauskraftwerk', 'E3/DC Farm', 'E3/DC one (Farm)', 'E3DC Farm', 'E3DCOne'
+        ], true)) {
+            IPS_SetName($this->InstanceID, 'E3/DC Connector');
+        }
         $this->maintainGroupedVariables();
         $this->updateOperatingLayout();
         $this->setGroupedValue('AdditionalConsumerValid', false);
@@ -804,7 +809,7 @@ PHP;
             $this->setGroupedValue('DataStatus', 'IP-Adresse des Hauptgeräts fehlt oder ist ungültig.');
             return;
         }
-        $lock = 'E3DCOne.Poll.' . $this->InstanceID;
+        $lock = 'E3DCConnector.Poll.' . $this->InstanceID;
         if (!IPS_SemaphoreEnter($lock, 0)) {
             return;
         }
@@ -1430,7 +1435,7 @@ PHP;
             || ($secondDevice && $host === trim($this->ReadPropertyString('Host')))) {
             throw new RuntimeException('Eine gültige und eindeutige Zieladresse ist erforderlich.');
         }
-        $lock = 'E3DCOne.Poll.' . $this->InstanceID;
+        $lock = 'E3DCConnector.Poll.' . $this->InstanceID;
         if (!IPS_SemaphoreEnter($lock, 2000)) {
             throw new RuntimeException('Eine Abfrage oder Steuerung läuft bereits.');
         }
@@ -1677,7 +1682,7 @@ PHP;
         if (!filter_var($this->ReadPropertyString('Host'), FILTER_VALIDATE_IP)) {
             return;
         }
-        $lock = 'E3DCOne.RscpSolar.' . $this->InstanceID;
+        $lock = 'E3DCConnector.RscpSolar.' . $this->InstanceID;
         if (!IPS_SemaphoreEnter($lock, 0)) {
             return;
         }

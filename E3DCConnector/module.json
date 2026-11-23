@@ -1,10 +1,10 @@
 {
   "id": "{AAEF96D2-6F24-4FF9-9C9C-C7FECE2C1559}",
-  "name": "E3DCOne",
+  "name": "E3DCConnector",
   "type": 3,
   "vendor": "E3/DC",
   "aliases": [
-    "E3/DC Hauskraftwerk"
+    "E3/DC Connector"
   ],
   "parentRequirements": [],
   "childRequirements": [],

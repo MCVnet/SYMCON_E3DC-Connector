@@ -1,13 +1,13 @@
-E3DC Farm 0.9.7 für IP-Symcon 9.0
+E3/DC Connector 0.9.7 für IP-Symcon 9.0
 
 Installation
 1. Auf dem Rechner, auf dem der IP-Symcon-Dienst läuft, den Ordner
-   E3DCFarm aus dem ZIP in das Unterverzeichnis modules des
+   SYMCON_E3DC-Connector aus dem ZIP in das Unterverzeichnis modules des
    Symcon-Datenverzeichnisses kopieren. Den Datenpfad liefert das
    Symcon-Skript: echo IPS_GetKernelDir();
-   Die Bibliothek liegt dann unter modules/E3DCFarm/library.json.
+   Die Bibliothek liegt dann unter modules/SYMCON_E3DC-Connector/library.json.
 2. IP-Symcon-Dienst neu starten und eine Instanz
-   „E3/DC Hauskraftwerk“ anlegen. Bei einem Update die vorhandene
+   „E3/DC Connector“ anlegen. Bei einem Update die vorhandene
    Farmmaster-Instanz weiterverwenden.
 3. Auf den Geräten Modbus/TCP im E3/DC Simple Mode für den
    Zugriff aus dem lokalen Netzwerk aktivieren. In der Instanz die IP-Adresse und bei
