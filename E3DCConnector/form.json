@@ -293,24 +293,17 @@
     },
     {
       "type": "ExpansionPanel",
-      "caption": "Speicher, Tageswerte und Prognose",
+      "caption": "Solarprognose",
       "expanded": false,
       "items": [
         {
-          "type": "ExpansionPanel",
-          "caption": "Solarprognose",
-          "expanded": false,
-          "items": [
-            {
-              "type": "Label",
-              "caption": "Eine vorhandene Prognosevariable in kWh kann hier verknüpft werden."
-            },
-            {
-              "type": "SelectVariable",
-              "name": "ForecastSource",
-              "caption": "Symcon-Variable für Solarprognose heute (kWh)"
-            }
-          ]
+          "type": "Label",
+          "caption": "Eine vorhandene Prognosevariable in kWh kann hier verknüpft werden."
+        },
+        {
+          "type": "SelectVariable",
+          "name": "ForecastSource",
+          "caption": "Symcon-Variable für Solarprognose heute (kWh)"
         }
       ]
     },
