@@ -143,22 +143,6 @@
                   "maximum": 3600
                 }
               ]
-            },
-            {
-              "type": "ExpansionPanel",
-              "caption": "Vorhandene zweite Symcon-Instanz",
-              "expanded": false,
-              "items": [
-                {
-                  "type": "Label",
-                  "caption": "Diese Einstellung gilt nur, solange keine zweite IP-Adresse hinterlegt ist."
-                },
-                {
-                  "type": "SelectInstance",
-                  "name": "SecondOne",
-                  "caption": "Zweite Symcon-Instanz (ältere Einrichtung)"
-                }
-              ]
             }
           ]
         }
