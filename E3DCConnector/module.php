@@ -1250,7 +1250,7 @@ PHP;
         return $category;
     }
 
-    private function publishAccessoryValue(int $parent, string $ident, string $name, mixed $value): void
+    private function publishAccessoryValue(int $parent, string $ident, string $name, mixed $value, string $profile = ''): void
     {
         $variable = @IPS_GetObjectIDByIdent($ident, $parent);
         if ($variable === false) {
@@ -1264,6 +1264,9 @@ PHP;
             IPS_SetParent($variable, $parent);
             IPS_SetIdent($variable, $ident);
             IPS_SetName($variable, $name);
+        }
+        if ($profile !== '' && IPS_GetVariable($variable)['VariableCustomProfile'] !== $profile) {
+            IPS_SetVariableCustomProfile($variable, $profile);
         }
         SetValue($variable, $value);
     }
@@ -1314,9 +1317,14 @@ PHP;
             throw new RuntimeException($message, 0, $error);
         }
         $this->publishRscpTree($category, $data);
-        $this->publishAccessoryValue($category, 'ReadStatus', 'Status',
-            $this->containsOnlyRscpErrors($data) ? 'Das Gerät hat keine Messwerte für diese Datengruppe geliefert.' : 'RSCP-Antwort gelesen.');
-        $this->publishAccessoryValue($category, 'LastRead', 'Letzte RSCP-Abfrage', time());
+        $hasMeasurements = !$this->containsOnlyRscpErrors($data);
+        $errors = $this->describeRscpErrors($data);
+        $status = $hasMeasurements ? 'RSCP-Messwerte gelesen.' : 'Keine Messwerte für diese Datengruppe.';
+        if ($errors !== []) {
+            $status .= ' ' . implode(' ', $errors);
+        }
+        $this->publishAccessoryValue($category, 'ReadStatus', 'Status', $status);
+        $this->publishAccessoryValue($category, 'LastRead', 'Letzte RSCP-Abfrage', time(), '~UnixTimestamp');
         if ($group === 'INFO' && !$secondDevice && !$farmController) {
             foreach (['INFO_SERIAL_NUMBER' => 'Serial', 'INFO_SW_RELEASE' => 'Firmware'] as $tag => $ident) {
                 if (is_string($data[$tag] ?? null)) {
@@ -1325,13 +1333,12 @@ PHP;
             }
         }
         $kind = ['PVI' => 'Wechselrichter', 'PM' => 'Zaehler', 'WB' => 'Wallbox'][$group] ?? null;
-        if ($kind !== null && !$this->containsOnlyRscpErrors($data)) {
+        if ($kind !== null && $hasMeasurements) {
             $key = $kind . ($farmController ? 'Farm' : ($secondDevice ? 'Zweit' : '')) . $index;
             $this->publishRscpAccessory($key, $names[$group] . ' ' . $index, $data, $secondDevice);
         }
         $endpoint = $host . ':' . $port . ' – ';
-        return $endpoint . ($this->containsOnlyRscpErrors($data) ? 'Keine Werte für diese Datengruppe geliefert.'
-            : $names[$group] . ' per RSCP gelesen. Details stehen im Objektbaum.');
+        return $endpoint . $status;
     }
 
     public function ReadRscpDeviceOverview(bool $secondDevice, bool $farmController = false): string
@@ -1345,6 +1352,28 @@ PHP;
             }
         }
         return implode("\n", $results);
+    }
+
+    private function describeRscpErrors(array $data): array
+    {
+        $errors = [];
+        foreach ($data as $field => $value) {
+            if ($field === 'RSCP-Fehler' && is_int($value)) {
+                $errors[$value] = match ($value) {
+                    1, 7 => 'Abfrage wird nicht unterstützt (RSCP ' . $value . ').',
+                    2 => 'Zugriff verweigert (RSCP 2).',
+                    3 => 'Anfrageformat abgelehnt (RSCP 3).',
+                    4 => 'Gerät bittet um erneuten Versuch (RSCP 4).',
+                    5 => 'Index oder Wert außerhalb des Gerätebereichs (RSCP 5).',
+                    6 => 'Datengruppe oder Wert nicht verfügbar (RSCP 6).',
+                    8 => 'Gerät meldet Datengruppe bereits in Verwendung (RSCP 8).',
+                    default => 'RSCP-Fehler ' . $value . '.'
+                };
+            } elseif (is_array($value)) {
+                $errors += $this->describeRscpErrors($value);
+            }
+        }
+        return $errors;
     }
 
     private function containsOnlyRscpErrors(array $data): bool
@@ -1384,7 +1413,20 @@ PHP;
         foreach ($data as $field => $value) {
             $ident = (is_array($value) ? 'Container' : 'Tag') . sha1($field);
             if (is_array($value)) {
-                $this->publishRscpTree($this->accessoryCategory($parent, $ident, $field), $value);
+                if (str_ends_with($field, ' – Fehler')) {
+                    $previous = @IPS_GetObjectIDByIdent($ident, $parent);
+                    if ($previous !== false && IPS_CategoryExists($previous)) {
+                        IPS_SetHidden($previous, true);
+                    }
+                    continue;
+                }
+                $label = match ($field) {
+                    'BAT_DATA' => 'Batteriemesswerte',
+                    'BAT_SPECIFICATION' => 'Batteriespezifikation',
+                    'Details je Modul, Phase oder String' => 'Module, Phasen und Strings',
+                    default => $field
+                };
+                $this->publishRscpTree($this->accessoryCategory($parent, $ident, $label), $value);
             } else {
                 $this->publishAccessoryValue($parent, $ident, $field, is_int($value) || is_float($value) ? (float) $value : $value);
             }
