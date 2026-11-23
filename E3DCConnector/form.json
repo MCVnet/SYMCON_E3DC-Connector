@@ -7,143 +7,158 @@
     },
     {
       "type": "ExpansionPanel",
-      "caption": "Lokales RSCP",
-      "items": [
-        {
-          "type": "Label",
-          "caption": "Alle Geräteabfragen und Schreibbefehle laufen über lokales RSCP. Der Farmcontroller ist ein eigener RSCP-Endpunkt."
-        },
-        {
-          "type": "CheckBox",
-          "name": "ReadRscpSolar",
-          "caption": "Lokales RSCP verwenden"
-        },
-        {
-          "type": "NumberSpinner",
-          "name": "DeviceRscpPort",
-          "caption": "RSCP-Port der Einzelgeräte",
-          "minimum": 1,
-          "maximum": 65535
-        },
-        {
-          "type": "NumberSpinner",
-          "name": "FarmRscpPort",
-          "caption": "RSCP-Port des Farmcontrollers",
-          "minimum": 1,
-          "maximum": 65535
-        },
-        {
-          "type": "ValidationTextBox",
-          "name": "FarmRscpUser",
-          "caption": "RSCP-Benutzer"
-        },
-        {
-          "type": "PasswordTextBox",
-          "name": "FarmRscpPassword",
-          "caption": "Passwort des lokalen RSCP-Benutzers"
-        },
-        {
-          "type": "PasswordTextBox",
-          "name": "FarmRscpKey",
-          "caption": "RSCP-Verschlüsselungsschlüssel"
-        },
-        {
-          "type": "NumberSpinner",
-          "name": "RscpDetailInterval",
-          "caption": "Detailabfrage (Sekunden, 0 = nur manuell)",
-          "minimum": 0,
-          "maximum": 3600
-        }
-      ],
-      "expanded": true
-    },
-    {
-      "type": "ExpansionPanel",
-      "caption": "Anlage und Geräteerkennung",
+      "caption": "Anlage und RSCP-Verbindung",
       "expanded": true,
       "items": [
         {
-          "type": "Select",
-          "name": "OperatingMode",
-          "caption": "Betriebsart",
-          "options": [
+          "type": "RowLayout",
+          "items": [
             {
-              "caption": "Automatisch",
-              "value": "auto"
+              "type": "Select",
+              "name": "OperatingMode",
+              "caption": "Betriebsart",
+              "options": [
+                {
+                  "caption": "Automatisch",
+                  "value": "auto"
+                },
+                {
+                  "caption": "Einzelgerät (Standalone)",
+                  "value": "standalone"
+                },
+                {
+                  "caption": "Farm",
+                  "value": "farm"
+                }
+              ],
+              "onChange": "if ($OperatingMode === 'farm') { echo E3DCF_DiscoverLAN($id, $LanNetwork ?? '', $Host ?? '', 0, 0, 'farm'); }"
             },
             {
-              "caption": "Einzelgerät (Standalone)",
-              "value": "standalone"
-            },
-            {
-              "caption": "Farm",
-              "value": "farm"
+              "type": "Button",
+              "caption": "Geräte im LAN suchen",
+              "onClick": "echo E3DCF_DiscoverLAN($id, $LanNetwork, $Host, 0, 0, $OperatingMode);"
             }
-          ],
-          "onChange": "if ($OperatingMode === 'farm') { echo E3DCF_DiscoverLAN($id, $LanNetwork ?? '', $Host ?? '', 0, 0, 'farm'); }"
+          ]
+        },
+        {
+          "type": "RowLayout",
+          "items": [
+            {
+              "type": "ValidationTextBox",
+              "name": "Host",
+              "caption": "Hauptgerät oder Farmcontroller (IP)"
+            },
+            {
+              "type": "ValidationTextBox",
+              "name": "SecondHost",
+              "caption": "Zweites Farmgerät (IP, optional)"
+            }
+          ]
         },
         {
           "type": "Label",
-          "caption": "Zuerst die RSCP-Zugangsdaten übernehmen. Bei Auswahl von „Farm“ sucht Symcon nach Farmcontroller und Farmgerät und speichert eine eindeutige Zuordnung."
-        },
-        {
-          "type": "ValidationTextBox",
-          "name": "Host",
-          "caption": "IP-Adresse des Hauptgeräts oder Farmmasters"
-        },
-        {
-          "type": "Button",
-          "caption": "Geräte im LAN suchen",
-          "onClick": "echo E3DCF_DiscoverLAN($id, $LanNetwork, $Host, 0, 0, $OperatingMode);"
+          "caption": "Für die automatische Suche zuerst die RSCP-Zugangsdaten speichern. Bei Auswahl von „Farm“ startet die Suche automatisch."
         },
         {
           "type": "ExpansionPanel",
-          "caption": "Erweiterte Netzwerkeinstellungen",
+          "caption": "RSCP-Anmeldung",
+          "expanded": true,
+          "items": [
+            {
+              "type": "RowLayout",
+              "items": [
+                {
+                  "type": "CheckBox",
+                  "name": "ReadRscpSolar",
+                  "caption": "Lokales RSCP verwenden"
+                },
+                {
+                  "type": "ValidationTextBox",
+                  "name": "FarmRscpUser",
+                  "caption": "RSCP-Benutzer"
+                }
+              ]
+            },
+            {
+              "type": "RowLayout",
+              "items": [
+                {
+                  "type": "PasswordTextBox",
+                  "name": "FarmRscpPassword",
+                  "caption": "RSCP-Benutzerpasswort"
+                },
+                {
+                  "type": "PasswordTextBox",
+                  "name": "FarmRscpKey",
+                  "caption": "RSCP-Verschlüsselungsschlüssel"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "ExpansionPanel",
+          "caption": "Ports, Suchnetz und Abfrageintervalle",
           "expanded": false,
           "items": [
+            {
+              "type": "RowLayout",
+              "items": [
+                {
+                  "type": "NumberSpinner",
+                  "name": "DeviceRscpPort",
+                  "caption": "RSCP-Port der Einzelgeräte",
+                  "minimum": 1,
+                  "maximum": 65535
+                },
+                {
+                  "type": "NumberSpinner",
+                  "name": "FarmRscpPort",
+                  "caption": "RSCP-Port des Farmcontrollers",
+                  "minimum": 1,
+                  "maximum": 65535
+                }
+              ]
+            },
             {
               "type": "ValidationTextBox",
               "name": "LanNetwork",
               "caption": "LAN-Suchnetz (optional, z. B. 192.168.178.0/24)"
             },
             {
-              "type": "NumberSpinner",
-              "name": "Interval",
-              "caption": "Abfrageintervall (Sekunden)",
-              "minimum": 5,
-              "maximum": 3600
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "type": "ExpansionPanel",
-      "caption": "Farmgeräte",
-      "expanded": false,
-      "items": [
-        {
-          "type": "Label",
-          "caption": "Für eine Farm die Adresse des zweiten Geräts hinterlegen. Im Einzelbetrieb bleibt diese Zuordnung gespeichert und wird beim erneuten Wechsel zur Farm wieder verwendet."
-        },
-        {
-          "type": "ValidationTextBox",
-          "name": "SecondHost",
-          "caption": "IP-Adresse des zweiten Farmgeräts (optional)"
-        },
-        {
-          "type": "ExpansionPanel",
-          "caption": "Vorhandene zweite Symcon-Instanz",
-          "expanded": false,
-          "items": [
-            {
-              "type": "Label",
-              "caption": "Diese Einstellung gilt nur, solange keine zweite IP-Adresse hinterlegt ist."
+              "type": "RowLayout",
+              "items": [
+                {
+                  "type": "NumberSpinner",
+                  "name": "Interval",
+                  "caption": "Live-Abfrage (Sekunden)",
+                  "minimum": 5,
+                  "maximum": 3600
+                },
+                {
+                  "type": "NumberSpinner",
+                  "name": "RscpDetailInterval",
+                  "caption": "Detailabfrage (Sekunden, 0 = nur manuell)",
+                  "minimum": 0,
+                  "maximum": 3600
+                }
+              ]
             },
             {
-              "type": "SelectInstance",
-              "name": "SecondOne",
-              "caption": "Zweite Symcon-Instanz (ältere Einrichtung)"
+              "type": "ExpansionPanel",
+              "caption": "Vorhandene zweite Symcon-Instanz",
+              "expanded": false,
+              "items": [
+                {
+                  "type": "Label",
+                  "caption": "Diese Einstellung gilt nur, solange keine zweite IP-Adresse hinterlegt ist."
+                },
+                {
+                  "type": "SelectInstance",
+                  "name": "SecondOne",
+                  "caption": "Zweite Symcon-Instanz (ältere Einrichtung)"
+                }
+              ]
             }
           ]
         }
