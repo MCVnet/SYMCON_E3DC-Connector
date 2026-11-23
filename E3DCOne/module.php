@@ -981,7 +981,7 @@ PHP;
         ]);
         $farmBalance = $this->isFarmMode() ? $this->readFarmMeterPowers($meterData, $farm, $heatPump, $notes) : null;
         $additionalMeter = $this->isFarmMode() && $heatPump >= 0 && $heatPump !== $farm;
-        $this->updateAdditionalConsumer($additionalMeter);
+        $this->updateAdditionalConsumer($additionalMeter, $heatPump);
 
         $battery = $read('Batteriegrenzen und Speicherenergie', 40202, 8);
         $batteryData = [];
@@ -1133,11 +1133,29 @@ PHP;
         return $settings;
     }
 
+    private function accessoryName(string $key, array $settings, array $legacyNames, string $default): string
+    {
+        $name = trim((string) ($settings[$key]['Name'] ?? ($legacyNames[$key] ?? '')));
+        return $name !== '' ? $name : $default;
+    }
+
+    private function accessoryLegacyNames(): array
+    {
+        $names = json_decode($this->ReadPropertyString('AccessoryNames'), true);
+        return is_array($names) ? $names : [];
+    }
+
+    private function additionalConsumerName(int $index, array $settings, array $legacyNames): string
+    {
+        $legacy = trim($this->ReadPropertyString('AdditionalConsumerName'));
+        return $this->accessoryName('Zaehler' . $index, $settings, $legacyNames, $legacy !== '' ? $legacy : 'Zusatzverbrauch');
+    }
+
     private function publishAccessories(array $groups, int $farm = -1, int $heatPump = -1): void
     {
         $ident = 'CategoryAccessories';
         $root = @IPS_GetObjectIDByIdent($ident, $this->InstanceID);
-        $names = json_decode($this->ReadPropertyString('AccessoryNames'), true);
+        $names = $this->accessoryLegacyNames();
         $settings = $this->accessorySettings();
         if ($root === false && array_filter($groups) === []) {
             return;
@@ -1149,17 +1167,16 @@ PHP;
             foreach ($entries as $label => $fields) {
                 $index = (int) substr($label, strrpos($label, ' ') + 1);
                 $key = $kind . $index;
-                $name = trim((string) ($settings[$key]['Name'] ?? ($names[$key] ?? '')));
                 $visible = (bool) ($settings[$key]['Visible'] ?? true);
                 $defaultName = match (true) {
                     $kind === 'Zaehler' && $index === $farm => 'Farmzähler',
-                    $kind === 'Zaehler' && $index === $heatPump => trim($this->ReadPropertyString('AdditionalConsumerName')) ?: 'Zusatzverbrauchszähler',
+                    $kind === 'Zaehler' && $index === $heatPump => $this->additionalConsumerName($index, $settings, $names),
                     $kind === 'Zaehler' => 'Zähler ' . $index,
                     $kind === 'String' => 'MPP-Tracker ' . $index,
                     $kind === 'WechselrichterZweit' => 'Wechselrichter ' . $index . ' – zweites Farmgerät',
                     default => $kind . ' ' . $index
                 };
-                $category = $this->accessoryCategory($root, $key, $name !== '' ? $name : $defaultName);
+                $category = $this->accessoryCategory($root, $key, $this->accessoryName($key, $settings, $names, $defaultName));
                 $current[] = $category;
                 IPS_SetHidden($category, !$visible);
                 $this->publishAccessoryValue($category, 'Aktuell', 'Daten aktuell', true);
@@ -1766,10 +1783,9 @@ PHP;
         return -1;
     }
 
-    private function updateAdditionalConsumer(bool $visible): void
+    private function updateAdditionalConsumer(bool $visible, int $index = -1): void
     {
-        $name = trim($this->ReadPropertyString('AdditionalConsumerName'));
-        $consumer = $name !== '' ? $name : 'Zusatzverbrauch';
+        $consumer = $this->additionalConsumerName($index, $this->accessorySettings(), $this->accessoryLegacyNames());
         foreach ([
             'HeatPumpConsumption' => $consumer . ' (W)',
             'FarmHouseConsumption' => 'Hausverbrauch ohne ' . $consumer . ' (W)',

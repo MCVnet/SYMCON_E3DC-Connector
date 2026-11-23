@@ -290,8 +290,8 @@ Optionaler Zusatzverbrauch ab 0.9.4
 Unter „Farm und Messpunkte“ kann ein separater Zähler einen bereits
 im Gesamtverbrauch enthaltenen Verbraucher ausweisen. Standardmäßig
 wird ein eindeutiger Typ-4-Zähler erkannt. Index −2 deaktiviert die
-Aufteilung, Index 0–7 wählt den Zähler manuell. Der Anzeigename kann
-zum Beispiel „Wärmepumpe“ lauten. Ohne gültigen Zusatzverbrauchszähler
+Aufteilung, Index 0–7 wählt den Zähler manuell. Den Anzeigenamen,
+zum Beispiel „Wärmepumpe“, in der Zubehörtabelle bearbeiten. Ohne gültigen Zusatzverbrauchszähler
 liefert der Farmzähler weiterhin die Grundlage für Netz und Gesamtverbrauch.
 
 

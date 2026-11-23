@@ -123,7 +123,7 @@
           "items": [
             {
               "type": "Label",
-              "caption": "Ein separater Zähler kann einen bereits im Gesamtverbrauch enthaltenen Verbraucher ausweisen, etwa eine Wärmepumpe. Ein eindeutiger Typ-4-Zähler wird automatisch erkannt."
+              "caption": "Ein separater Zähler kann einen im Gesamtverbrauch enthaltenen Verbraucher ausweisen. Ein eindeutiger Typ-4-Zähler wird automatisch erkannt. Den Namen des Zählers unter „Wallbox und Zubehör“ bearbeiten."
             },
             {
               "type": "NumberSpinner",
@@ -131,11 +131,6 @@
               "caption": "Zählerindex (−2 = aus, −1 = Typ 4 automatisch)",
               "minimum": -2,
               "maximum": 7
-            },
-            {
-              "type": "ValidationTextBox",
-              "name": "AdditionalConsumerName",
-              "caption": "Anzeigename des Verbrauchers (optional)"
             }
           ]
         },
