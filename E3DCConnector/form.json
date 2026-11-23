@@ -324,7 +324,7 @@
     {
       "type": "Button",
       "caption": "Jetzt auslesen",
-      "onClick": "E3DCF_Poll($id); E3DCF_PollRscpSolar($id);"
+      "onClick": "E3DCF_Poll($id); E3DCF_PollRscpSolar($id); E3DCF_RefreshRscpDetails($id);"
     },
     {
       "type": "Button",
@@ -335,89 +335,6 @@
       "type": "Button",
       "caption": "RSCP-Verbindungen testen",
       "onClick": "echo E3DCF_TestRscpConnections($id, false);"
-    },
-    {
-      "type": "Button",
-      "caption": "RSCP-Verbindungen inklusive Einzelgeräte-Port testen",
-      "onClick": "echo E3DCF_TestRscpConnections($id, true);"
-    },
-    {
-      "type": "ExpansionPanel",
-      "caption": "RSCP-Gerätedetails",
-      "expanded": false,
-      "items": [
-        {
-          "type": "Select",
-          "name": "DetailTarget",
-          "caption": "RSCP-Ziel",
-          "options": [
-            {
-              "value": "main",
-              "caption": "Hauptgerät (Einzelgeräte-Port)"
-            },
-            {
-              "value": "controller",
-              "caption": "Farmcontroller"
-            },
-            {
-              "value": "second",
-              "caption": "Zweites Farmgerät"
-            }
-          ]
-        },
-        {
-          "type": "Select",
-          "name": "DetailGroup",
-          "caption": "Datengruppe",
-          "options": [
-            {
-              "value": "INFO",
-              "caption": "Geräteinformationen"
-            },
-            {
-              "value": "DCDC",
-              "caption": "DC/DC-Wandler"
-            },
-            {
-              "value": "EMS",
-              "caption": "Energiemanagement"
-            },
-            {
-              "value": "BAT",
-              "caption": "Batterie und Batteriemodule"
-            },
-            {
-              "value": "PVI",
-              "caption": "Wechselrichter"
-            },
-            {
-              "value": "PM",
-              "caption": "Leistungsmesser"
-            },
-            {
-              "value": "WB",
-              "caption": "Wallbox"
-            }
-          ]
-        },
-        {
-          "type": "NumberSpinner",
-          "name": "DetailIndex",
-          "caption": "Geräteindex",
-          "minimum": 0,
-          "maximum": 255
-        },
-        {
-          "type": "Button",
-          "caption": "RSCP-Details lesen",
-          "onClick": "try { echo E3DCF_ReadRscpDetails($id, $DetailTarget === 'second', $DetailGroup, $DetailIndex, $DetailTarget === 'controller'); } catch (Throwable $e) { echo $e->getMessage(); }"
-        },
-        {
-          "type": "Button",
-          "caption": "Alle Datengruppen für Index 0 lesen",
-          "onClick": "echo E3DCF_ReadRscpDeviceOverview($id, $DetailTarget === 'second', $DetailTarget === 'controller');"
-        }
-      ]
     },
     {
       "type": "ExpansionPanel",

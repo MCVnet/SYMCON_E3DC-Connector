@@ -10,18 +10,15 @@ Einrichtung
   Geräteport (üblicherweise 5033) und den Farmcontroller-Port
   (üblicherweise 5034) unabhängig voneinander. Zwei eindeutig
   zugeordnete Farmadressen werden automatisch gespeichert.
-- „Jetzt auslesen“ aktualisiert Live-Werte und Tagessummen.
+- „Jetzt auslesen“ aktualisiert Live-Werte, Tagessummen und Gerätedetails.
   Der Farmcontroller wird separat abgefragt. Sein Wert wird nicht zu
   Einzelgeräten addiert.
 
 RSCP-Gerätedetails
-Unter den Aktionen „RSCP-Gerätedetails“ stehen EMS-Daten, Batterie und
-Batteriemodule, Wechselrichter, Leistungsmesser und Wallbox zur Auswahl.
-Index 0 wird standardmäßig alle fünf Minuten aktualisiert. Weitere
-Indizes können gezielt abgerufen werden. Im Farmbetrieb werden der
-Farmcontroller und das zweite zugeordnete Farmgerät regelmäßig
-aktualisiert. Der Einzelgeräte-Port des Hauptgeräts bleibt als
-separates manuelles Ziel auswählbar. Die Antwortfelder erscheinen in Symcon unter „RSCP-Gerätedetails“.
+Die Kategorien unter „RSCP-Gerätedetails“ zeigen EMS-Daten, Batteriemodule,
+Wechselrichter, Leistungsmesser, DC/DC-Wandler und Wallbox-Daten.
+Index 0 wird standardmäßig alle fünf Minuten aktualisiert. Im Farmbetrieb
+fragt der Connector den Farmcontroller und das zweite Gerät ab.
 Die Unterstützung hängt von Modell, Firmware und lokalen Leserechten ab.
 Die spezifizierte Kapazität pro Gerät in kWh ist von der nutzbaren
 Kapazität zu unterscheiden. Eine lokale Solarprognose ist nicht belegt.

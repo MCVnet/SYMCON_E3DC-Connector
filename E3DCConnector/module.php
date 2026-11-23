@@ -1102,19 +1102,6 @@ PHP;
             }
         }
         unset($section);
-        $farm = $this->isFarmMode();
-        foreach ($form['actions'] as &$section) {
-            foreach ($section['items'] ?? [] as $index => $item) {
-                if (($item['name'] ?? '') !== 'DetailTarget') {
-                    continue;
-                }
-                $section['items'][$index]['value'] = $farm ? 'controller' : 'main';
-                if (!$farm) {
-                    $section['items'][$index]['options'] = [$item['options'][0]];
-                }
-            }
-        }
-        unset($section);
         return json_encode($form, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE);
     }
 
@@ -1256,11 +1243,23 @@ PHP;
 
     public function PollRscpDetails(): void
     {
-        $this->runTimerPoll(function (): void {
+        $this->runRscpDetails(false);
+    }
+
+    public function RefreshRscpDetails(): void
+    {
+        $this->runRscpDetails(true);
+    }
+
+    private function runRscpDetails(bool $manual): void
+    {
+        $this->runTimerPoll(function () use ($manual): void {
             $interval = $this->ReadPropertyInteger('RscpDetailInterval');
-            $enabled = $interval > 0 && $this->ReadPropertyBoolean('Active') && $this->rscpCredentials() !== null;
-            $this->SetTimerInterval('RscpDetailsTimer', $enabled ? max(60, min(3600, $interval)) * 1000 : 0);
-            if (!$enabled) {
+            $enabled = $this->ReadPropertyBoolean('Active') && $this->rscpCredentials() !== null;
+            if (!$manual) {
+                $this->SetTimerInterval('RscpDetailsTimer', $enabled && $interval > 0 ? max(60, min(3600, $interval)) * 1000 : 0);
+            }
+            if (!$enabled || (!$manual && $interval <= 0)) {
                 return;
             }
             $lock = 'E3DCConnector.Details.' . $this->InstanceID;
