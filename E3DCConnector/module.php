@@ -86,6 +86,50 @@ class E3DCConnector extends IPSModule
         $this->maintainGroupedVariables();
     }
 
+    private function findModuleCategory(int $instance, string $ident): int|false
+    {
+        $id = @IPS_GetObjectIDByIdent($ident, $instance);
+        if ($id !== false && IPS_CategoryExists($id)) {
+            return $id;
+        }
+        foreach (['CategoryFarm', 'CategoryRscpDetails', 'CategorySystem'] as $rootIdent) {
+            $root = @IPS_GetObjectIDByIdent($rootIdent, $instance);
+            if ($root !== false && IPS_CategoryExists($root)) {
+                $id = @IPS_GetObjectIDByIdent($ident, $root);
+                if ($id !== false && IPS_CategoryExists($id)) {
+                    return $id;
+                }
+                if ($rootIdent === 'CategoryRscpDetails') {
+                    foreach (['Device1', 'Device2'] as $deviceIdent) {
+                        $device = @IPS_GetObjectIDByIdent($deviceIdent, $root);
+                        if ($device !== false && IPS_CategoryExists($device)) {
+                            $id = @IPS_GetObjectIDByIdent($ident, $device);
+                            if ($id !== false && IPS_CategoryExists($id)) {
+                                return $id;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    private function structureCategory(string $ident, string $name, int $parent): int
+    {
+        $id = $this->findModuleCategory($this->InstanceID, $ident);
+        if ($id === false) {
+            return $this->accessoryCategory($parent, $ident, $name);
+        }
+        if (IPS_GetParent($id) !== $parent) {
+            IPS_SetParent($id, $parent);
+        }
+        if (IPS_GetName($id) !== $name) {
+            IPS_SetName($id, $name);
+        }
+        return $id;
+    }
+
     private function maintainGroupedVariables(): void
     {
         foreach (self::POWER as $ident => $label) {
@@ -324,7 +368,7 @@ class E3DCConnector extends IPSModule
         if (!$this->shouldCreateVariable($ident, $groupIdent)) {
             return;
         }
-        $category = @IPS_GetObjectIDByIdent($groupIdent, $this->InstanceID);
+        $category = $this->findModuleCategory($this->InstanceID, $groupIdent);
         if ($category === false) {
             $category = IPS_CreateCategory();
             IPS_SetParent($category, $this->InstanceID);
@@ -384,7 +428,7 @@ class E3DCConnector extends IPSModule
     private function findGroupedVariable(string $ident, int $instance): int|false
     {
         [$groupIdent] = $this->variableLocation($ident);
-        $category = @IPS_GetObjectIDByIdent($groupIdent, $instance);
+        $category = $this->findModuleCategory($instance, $groupIdent);
         if ($category !== false && IPS_CategoryExists($category)) {
             $variable = @IPS_GetObjectIDByIdent($ident, $category);
             if ($variable !== false && IPS_VariableExists($variable)) {
@@ -397,7 +441,7 @@ class E3DCConnector extends IPSModule
         }
         // Earlier releases may have placed the variable in another module category.
         foreach (array_keys(self::GROUPS) as $group) {
-            $previous = @IPS_GetObjectIDByIdent('E3DCGroup' . $group, $instance);
+            $previous = $this->findModuleCategory($instance, 'E3DCGroup' . $group);
             if ($previous === false || $previous === $category || !IPS_CategoryExists($previous)) {
                 continue;
             }
@@ -456,6 +500,23 @@ class E3DCConnector extends IPSModule
         }
         $this->setGroupedValue('OperatingModeStatus', $status);
         $useMainDevice = !$farm;
+        $farmRoot = $farm ? $this->accessoryCategory($this->InstanceID, 'CategoryFarm', 'Farmbetrieb')
+            : $this->findModuleCategory($this->InstanceID, 'CategoryFarm');
+        if ($farmRoot !== false) {
+            IPS_SetHidden($farmRoot, !$farm);
+            IPS_SetPosition($farmRoot, 10);
+        }
+        $devices = $configured ? $this->accessoryCategory($this->InstanceID, 'CategoryRscpDetails', 'Einzelgeräte')
+            : $this->findModuleCategory($this->InstanceID, 'CategoryRscpDetails');
+        if ($devices !== false) {
+            IPS_SetPosition($devices, 20);
+        }
+        $main = $devices !== false && !$farm ? $this->accessoryCategory($devices, 'Device1', 'Hauptgerät')
+            : $this->findModuleCategory($this->InstanceID, 'Device1');
+        $peer = $devices !== false && $farm && $this->hasFarmPeer() ? $this->accessoryCategory($devices, 'Device2', 'Zweites Farmgerät')
+            : $this->findModuleCategory($this->InstanceID, 'Device2');
+        $system = $this->accessoryCategory($this->InstanceID, 'CategorySystem', 'System und Diagnose');
+        IPS_SetPosition($system, 30);
         $positions = ['Farm' => 10, 'FarmStorage' => 15, 'Master' => 20, 'Storage' => 25,
             'Second' => 30, 'SecondStorage' => 35, 'Wallbox' => 40, 'Daily' => 50,
             'Identity' => 60, 'Diagnostics' => 90];
@@ -466,20 +527,39 @@ class E3DCConnector extends IPSModule
                 $name = 'Einzelgerät – Leistung und Verbrauch';
             }
             $position = $positions[$group];
-            $category = @IPS_GetObjectIDByIdent('E3DCGroup' . $group, $this->InstanceID);
+            $category = $this->findModuleCategory($this->InstanceID, 'E3DCGroup' . $group);
             if ($category !== false && IPS_CategoryExists($category)) {
+                $parent = match ($group) {
+                    'Farm', 'FarmStorage' => $farmRoot,
+                    'Daily' => $farm ? $farmRoot : $main,
+                    'Diagnostics' => $system,
+                    'Master', 'Storage', 'Identity' => $main,
+                    'Second', 'SecondStorage' => $peer,
+                    default => $devices
+                };
+                if ($parent !== false && IPS_GetParent($category) !== $parent) {
+                    IPS_SetParent($category, $parent);
+                }
                 IPS_SetName($category, $name);
                 IPS_SetHidden($category, $hidden);
                 IPS_SetPosition($category, $position);
             }
         }
-        $details = @IPS_GetObjectIDByIdent('CategoryRscpDetails', $this->InstanceID);
-        if ($details !== false && IPS_CategoryExists($details)) {
-            foreach (['Device1' => !$useMainDevice, 'FarmController' => !$farm, 'Device2' => !$farm] as $key => $hidden) {
-                $category = @IPS_GetObjectIDByIdent($key, $details);
-                if ($category !== false && IPS_CategoryExists($category)) {
-                    IPS_SetHidden($category, $hidden);
-                }
+        foreach (['Device1' => !$useMainDevice, 'FarmController' => !$farm, 'Device2' => !$farm] as $key => $hidden) {
+            $old = $this->findModuleCategory($this->InstanceID, $key);
+            if ($old === false) {
+                continue;
+            }
+            if ($key === 'FarmController' && $farmRoot !== false && IPS_GetParent($old) !== $farmRoot) {
+                IPS_SetParent($old, $farmRoot);
+                IPS_SetPosition($old, 60);
+            }
+            IPS_SetHidden($old, $hidden);
+        }
+        foreach (['CategoryAccessories' => $devices, 'CategoryExternalSystems' => $system] as $ident => $parent) {
+            $category = $this->findModuleCategory($this->InstanceID, $ident);
+            if ($category !== false && $parent !== false && IPS_GetParent($category) !== $parent) {
+                IPS_SetParent($category, $parent);
             }
         }
     }
@@ -491,14 +571,15 @@ class E3DCConnector extends IPSModule
             return;
         }
         $rows = $this->decodeJsonArray($configuration);
-        $root = @IPS_GetObjectIDByIdent('CategoryExternalSystems', $this->InstanceID);
+        $root = $this->findModuleCategory($this->InstanceID, 'CategoryExternalSystems');
         if (!is_array($rows) || $rows === []) {
             if ($root !== false) {
                 IPS_SetHidden($root, true);
             }
             return;
         }
-        $root = $this->accessoryCategory($this->InstanceID, 'CategoryExternalSystems', 'Externe Systeme');
+        $root = $this->structureCategory('CategoryExternalSystems', 'Externe Systeme',
+            $this->accessoryCategory($this->InstanceID, 'CategorySystem', 'System und Diagnose'));
         IPS_SetPosition($root, 80);
         IPS_SetHidden($root, false);
         $current = [];
@@ -1107,7 +1188,7 @@ PHP;
 
     private function accessoryTableRows(): array
     {
-        $root = @IPS_GetObjectIDByIdent('CategoryAccessories', $this->InstanceID);
+        $root = $this->findModuleCategory($this->InstanceID, 'CategoryAccessories');
         $rows = $this->accessorySettings() ?? [];
         $roles = [];
         $assignmentId = $this->findGroupedVariable('DetectedFarmDevices', $this->InstanceID);
@@ -1191,7 +1272,7 @@ PHP;
 
     private function markAccessoryDataStale(): void
     {
-        $root = @IPS_GetObjectIDByIdent('CategoryAccessories', $this->InstanceID);
+        $root = $this->findModuleCategory($this->InstanceID, 'CategoryAccessories');
         if ($root === false || !IPS_CategoryExists($root)) {
             return;
         }
@@ -1272,7 +1353,7 @@ PHP;
                 if ($farm && $this->hasFarmPeer()) {
                     $this->ReadRscpDeviceOverview(true);
                 }
-                $this->collectRscpAccessories();
+                $this->collectRscpAccessories(true);
             } finally {
                 IPS_SemaphoreLeave($lock);
             }
@@ -1286,7 +1367,7 @@ PHP;
         return $message;
     }
 
-    private function collectRscpAccessories(): string
+    private function collectRscpAccessories(bool $skipIndexZero = false): string
     {
         $farm = $this->isFarmMode();
         $targets = $farm ? [[false, true]] : [[false, false]];
@@ -1309,6 +1390,13 @@ PHP;
                     };
                     $key = $prefix . ($controller ? 'Farm' : ($second ? 'Zweit' : '')) . $index;
                     $this->publishRscpAccessory($key, $name . ' ' . $index, [], $second, $role);
+                    if (!$skipIndexZero || $index !== 0) {
+                        try {
+                            $this->ReadRscpDetails($second, $group, $index, $controller);
+                        } catch (RuntimeException $error) {
+                            $messages[] = $label . ' ' . $name . ' ' . $index . ': ' . $error->getMessage();
+                        }
+                    }
                 }
                 $messages[] = $label . ': ' . count($result['entries']) . ' Zubehörgeräte erkannt.'
                     . ($result['warning'] !== '' ? ' ' . $result['warning'] : '');
@@ -1327,16 +1415,23 @@ PHP;
         if (!isset($names[$group])) {
             throw new RuntimeException('Unbekannte RSCP-Datengruppe.');
         }
-        $root = $this->accessoryCategory($this->InstanceID, 'CategoryRscpDetails', 'RSCP-Gerätedetails');
-        $device = $this->accessoryCategory($root, $farmController ? 'FarmController' : ($secondDevice ? 'Device2' : 'Device1'),
-            $farmController ? 'Farmcontroller' : ($secondDevice ? 'Zweites Farmgerät' : 'Hauptgerät'));
+        $root = $farmController ? $this->accessoryCategory($this->InstanceID, 'CategoryFarm', 'Farmbetrieb')
+            : $this->accessoryCategory($this->InstanceID, 'CategoryRscpDetails', 'Einzelgeräte');
+        $device = $this->structureCategory($farmController ? 'FarmController' : ($secondDevice ? 'Device2' : 'Device1'),
+            $farmController ? 'Farmcontroller' : ($secondDevice ? 'Zweites Farmgerät' : 'Hauptgerät'), $root);
+        IPS_SetPosition($device, 60);
         IPS_SetHidden($device, !$farmController && !$secondDevice && $this->isFarmMode());
         $category = $this->accessoryCategory($device, $group . $index, $names[$group] . (in_array($group, ['INFO', 'EMS'], true) ? '' : ' ' . $index));
+        $kind = ['PVI' => 'Wechselrichter', 'PM' => 'Zaehler', 'WB' => 'Wallbox'][$group] ?? null;
+        $key = $kind !== null ? $kind . ($farmController ? 'Farm' : ($secondDevice ? 'Zweit' : '')) . $index : null;
         try {
             $data = $client->readDetails($host, $port, $user, $password, $group, $index);
         } catch (RuntimeException $error) {
             $message = $host . ':' . $port . ' – ' . $error->getMessage();
             $this->publishAccessoryValue($category, 'ReadStatus', 'Status', $message);
+            if ($key !== null) {
+                $this->markAccessoryPowerStale($key);
+            }
             throw new RuntimeException($message, 0, $error);
         }
         $this->publishRscpTree($category, $data);
@@ -1355,10 +1450,12 @@ PHP;
                 }
             }
         }
-        $kind = ['PVI' => 'Wechselrichter', 'PM' => 'Zaehler', 'WB' => 'Wallbox'][$group] ?? null;
-        if ($kind !== null && $hasMeasurements) {
-            $key = $kind . ($farmController ? 'Farm' : ($secondDevice ? 'Zweit' : '')) . $index;
-            $this->publishRscpAccessory($key, $names[$group] . ' ' . $index, $data, $secondDevice);
+        if ($key !== null) {
+            if ($hasMeasurements) {
+                $this->publishRscpAccessory($key, $names[$group] . ' ' . $index, $data, $secondDevice);
+            } else {
+                $this->markAccessoryPowerStale($key);
+            }
         }
         $endpoint = $host . ':' . $port . ' – ';
         return $endpoint . $status;
@@ -1414,7 +1511,8 @@ PHP;
 
     private function publishRscpAccessory(string $key, string $label, array $data, bool $secondDevice, string $role = ''): void
     {
-        $root = $this->accessoryCategory($this->InstanceID, 'CategoryAccessories', 'Zubehör und Messpunkte');
+        $root = $this->structureCategory('CategoryAccessories', 'Zubehör und Messpunkte',
+            $this->accessoryCategory($this->InstanceID, 'CategoryRscpDetails', 'Einzelgeräte'));
         IPS_SetPosition($root, 70);
         $settings = $this->accessorySettings() ?? [];
         $default = $label . ($secondDevice ? ' – zweites Farmgerät' : '');
@@ -1427,7 +1525,52 @@ PHP;
         }
         if ($data !== []) {
             $this->publishJsonValue($category, 'RscpSnapshot', 'RSCP-Daten', $data);
+            $this->publishAccessoryPower($category, $data);
         }
+    }
+
+    private function markAccessoryPowerStale(string $key): void
+    {
+        $root = $this->findModuleCategory($this->InstanceID, 'CategoryAccessories');
+        $category = $root !== false ? @IPS_GetObjectIDByIdent($key, $root) : false;
+        if ($category !== false && IPS_CategoryExists($category)) {
+            $this->publishAccessoryValue($category, 'PowerCurrent', 'Leistung aktuell', false);
+        }
+    }
+
+    private function publishAccessoryPower(int $category, array $data): void
+    {
+        $phases = $this->accessoryPhasePowers($data);
+        foreach ($phases as $index => $power) {
+            $phase = $index + 1;
+            $this->publishAccessoryValue($category, 'PowerL' . $phase, 'Leistung L' . $phase . ' (W)', $power);
+        }
+        $this->publishAccessoryValue($category, 'PowerCurrent', 'Leistung aktuell', $phases !== []);
+        if ($phases !== []) {
+            $this->publishAccessoryValue($category, 'PowerTotal', 'Leistung gesamt (W)', (float) array_sum($phases));
+        }
+    }
+
+    private function accessoryPhasePowers(array $data): array
+    {
+        $phases = [];
+        foreach ($data as $field => $value) {
+            if (is_array($value)) {
+                if (preg_match('/^PVI_AC_POWER(?: \(W\))?(?: #\d+)?$/D', $field)
+                    && is_numeric($value['PVI_INDEX'] ?? null) && is_numeric($value['PVI_VALUE'] ?? null)) {
+                    $index = (int) $value['PVI_INDEX'];
+                    if ($index >= 0 && $index < 3) {
+                        $phases[$index] = (float) $value['PVI_VALUE'];
+                    }
+                } else {
+                    $phases += $this->accessoryPhasePowers($value);
+                }
+            } elseif (is_numeric($value) && preg_match('/^(?:WB_)?PM_POWER_L([123])(?: \(W\))?$/D', $field, $match)) {
+                $phases[(int) $match[1] - 1] = (float) $value;
+            }
+        }
+        ksort($phases);
+        return $phases;
     }
 
     private function publishJsonValue(int $parent, string $ident, string $name, array $data): void
@@ -1616,7 +1759,7 @@ PHP;
 
     private function publishRscpEnergy(array $energy): void
     {
-        $daily = @IPS_GetObjectIDByIdent('E3DCGroupDaily', $this->InstanceID);
+        $daily = $this->findModuleCategory($this->InstanceID, 'E3DCGroupDaily');
         if ($daily === false || !IPS_CategoryExists($daily)) {
             return;
         }

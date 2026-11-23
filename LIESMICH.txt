@@ -38,3 +38,12 @@ Referenzen
 RSCPGui (rxhan), https://github.com/rxhan/RSCPGui, MIT.
 ioBroker.e3dc-rscp (git-kick), https://github.com/git-kick/ioBroker.e3dc-rscp.
 Die Rijndael-Implementierung stammt aus phpseclib 2.0.48 (MIT).
+
+
+Objektbaum und Zubehörleistung
+Farmbilanz, Tageswerte und Farmcontroller liegen unter „Farmbetrieb“.
+„Einzelgeräte“ enthält Gerätedaten und „Zubehör und Messpunkte“.
+Unter „System und Diagnose“ liegen Verbindungsdiagnose und externe Systeme.
+Erkannte Zähler, Wallboxen und Wechselrichter werden auch oberhalb von
+Index 0 regelmäßig abgefragt. Die Zubehöreinträge zeigen Phasenleistungen
+und ihre Summe in Watt, sofern die Leistung geliefert wird.
