@@ -1,4 +1,4 @@
-E3DC Farm 0.7 für IP-Symcon 9.0
+E3DC Farm 0.7.1 für IP-Symcon 9.0
 
 Installation
 1. Auf dem Rechner, auf dem der IP-Symcon-Dienst läuft, den Ordner
@@ -111,3 +111,7 @@ Verknüpfung mit einer separaten Symcon-Instanz. Hat der zweite one
 einen konfigurierten Kapazitäts-Ersatzwert, diesen in das neue Feld
 am Farmmaster übertragen. Die alte Instanz kann für bestehende
 Referenzen erhalten bleiben. Das Modul verwendet weiterhin Lesezugriffe.
+
+Bei leerem Suchnetz nutzt die Suche die Farmmaster-IP aus dem Formular
+oder die gespeicherte IP. Ein LAN-Präfix wie 192.168.178 ist ebenfalls
+zulässig. Fehlermeldungen nennen das jeweils betroffene Feld.

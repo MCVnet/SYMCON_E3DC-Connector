@@ -131,13 +131,34 @@ class E3DCOne extends IPSModule
         if ($network === '') {
             $network = trim($master);
         }
-        $network = preg_replace('~/24$~', '', $network);
-        if (!filter_var($network, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)
-            || !preg_match('/^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)/', $network)
-            || $port < 1 || $port > 65535 || $unit < 0 || $unit > 255) {
-            return 'Eine private IPv4-Adresse oder ein privates /24-Netz sowie gültige Modbus-Einstellungen eingeben.';
+        if ($network === '') {
+            $network = trim($this->ReadPropertyString('Host'));
         }
-        $prefix = substr($network, 0, strrpos($network, '.') + 1);
+        if ($network === '') {
+            return 'Bitte im Feld LAN-Suchnetz das eigene Netz eingeben, z. B. 192.168.178.0/24.';
+        }
+
+        $address = preg_replace('~\s*/\s*24$~', '', $network);
+        if (preg_match('/^([0-9]{1,3}\.){2}[0-9]{1,3}\.?$/', $address)) {
+            $address = rtrim($address, '.') . '.0';
+        }
+        if (!filter_var($address, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+            return 'Das LAN-Suchnetz muss eine IPv4-Adresse oder ein IPv4-/24-Netz sein. Eingegeben: ' . $network;
+        }
+        if (!preg_match('/^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)/', $address)) {
+            return 'Die LAN-Suche braucht eine private IPv4-Adresse. Eingegeben: ' . $address;
+        }
+        if ($port === 0) {
+            $port = $this->ReadPropertyInteger('Port');
+            $unit = $this->ReadPropertyInteger('Unit');
+        }
+        if ($port < 1 || $port > 65535) {
+            return 'Modbus-TCP-Port zwischen 1 und 65535 eingeben.';
+        }
+        if ($unit < 0 || $unit > 255) {
+            return 'Modbus Unit-ID zwischen 0 und 255 eingeben.';
+        }
+        $prefix = substr($address, 0, strrpos($address, '.') + 1);
         $matches = [];
         foreach (array_chunk(range(1, 254), 24) as $batch) {
             $pending = [];
@@ -191,7 +212,8 @@ class E3DCOne extends IPSModule
         }
 
         if ($matches === []) {
-            return 'Kein E3/DC one gefunden. Modbus/TCP im E3/DC Simple Mode, Netz, Port und Unit-ID prüfen.';
+            return sprintf('Kein E3/DC one in %s0/24 gefunden (Port %d, Unit-ID %d). Modbus/TCP im E3/DC Simple Mode prüfen.',
+                $prefix, $port, $unit);
         }
         return implode("\n", $matches) . "\n\nDie IP-Adressen in die Felder für Farmmaster und zweiten one eintragen.";
     }
