@@ -226,7 +226,7 @@
       "items": [
         {
           "type": "Label",
-          "caption": "Erkannte Geräte erscheinen automatisch. Anzeigename und Sichtbarkeit lassen sich direkt in der Tabelle ändern."
+          "caption": "Erkannte Geräte erscheinen automatisch. Die Spalte „Funktion“ zeigt ihre automatische Zuordnung. Anzeigename und Sichtbarkeit lassen sich in der Tabelle ändern."
         },
         {
           "type": "List",
@@ -252,6 +252,12 @@
               }
             },
             {
+              "caption": "Funktion",
+              "name": "Role",
+              "width": "150px",
+              "save": false
+            },
+            {
               "caption": "Status",
               "name": "Current",
               "width": "125px"
@@ -268,43 +274,6 @@
           ],
           "loadValuesFromConfiguration": false,
           "values": []
-        },
-        {
-          "type": "ExpansionPanel",
-          "caption": "Optionaler Zusatzverbrauch",
-          "expanded": false,
-          "items": [
-            {
-              "type": "Label",
-              "caption": "Ein eindeutiger Typ-4-Zähler wird automatisch als Zusatzverbrauch zugeordnet. Den Namen kannst du in der Zubehörtabelle ändern."
-            },
-            {
-              "type": "NumberSpinner",
-              "name": "HeatPumpMeter",
-              "caption": "Zählerindex (−2 = aus, −1 = Typ 4 automatisch)",
-              "minimum": -2,
-              "maximum": 7
-            }
-          ]
-        },
-        {
-          "type": "ExpansionPanel",
-          "caption": "Manuelle Wallbox-Vorgaben",
-          "expanded": false,
-          "items": [
-            {
-              "type": "CheckBox",
-              "name": "ReadWallbox",
-              "caption": "Wallbox auch ohne automatische Erkennung auslesen"
-            },
-            {
-              "type": "NumberSpinner",
-              "name": "WallboxSlot",
-              "caption": "Wallbox-Slot (−1 = automatisch)",
-              "minimum": -1,
-              "maximum": 7
-            }
-          ]
         }
       ]
     },

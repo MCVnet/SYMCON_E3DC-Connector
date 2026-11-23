@@ -943,39 +943,36 @@ PHP;
         $wallboxes = [];
         $availableSlots = [];
         $summary = [];
-        $wallboxStatus = 'Abfrage deaktiviert';
-        if ($auto || $this->ReadPropertyBoolean('ReadWallbox')) {
-            $values = $read('Wallbox-Slots', 40088, 8);
-            if ($values === null && $connectionUsable) {
-                for ($index = 0; $index < 8 && $connectionUsable; $index++) {
-                    $state = $read('Wallbox-Slot ' . $index, 40088 + $index, 1);
-                    if ($state !== null) {
-                        $values[$index] = $state[0];
-                    }
+        $values = $read('Wallbox-Slots', 40088, 8);
+        if ($values === null && $connectionUsable) {
+            for ($index = 0; $index < 8 && $connectionUsable; $index++) {
+                $state = $read('Wallbox-Slot ' . $index, 40088 + $index, 1);
+                if ($state !== null) {
+                    $values[$index] = $state[0];
                 }
             }
-            $wallboxStatus = $values === null ? 'Wallbox-Abfrage fehlgeschlagen' : 'Kein Wallbox-Slot verfügbar';
-            foreach ($values ?? [] as $slot => $state) {
-                $available = ($state & 1) !== 0;
-                $details = ['Verfügbar' => $available, 'Rohwert' => $state];
-                if ($available) {
-                    $availableSlots[] = $slot;
-                    $details += [
-                        'Betriebsart' => ($state & 2) !== 0 ? 'Solarbetrieb' : 'Mischbetrieb',
-                        'Laden freigegeben' => ($state & 4) === 0,
-                        'Auto lädt' => ($state & 8) !== 0,
-                        'Fahrzeug angeschlossen' => ($state & 32) !== 0,
-                        'Aktive Phasen laut efy-Status' => ($state & 4096) !== 0 ? 1 : 3
-                    ];
-                    $charging = $details['Auto lädt'] ? 'lädt' : 'lädt nicht';
-                    $summary[] = "Slot $slot: " . $details['Betriebsart'] . ", $charging";
-                }
-                $wallboxes['Slot ' . $slot] = $details;
+        }
+        $wallboxStatus = $values === null ? 'Wallbox-Abfrage fehlgeschlagen' : 'Kein Wallbox-Slot verfügbar';
+        foreach ($values ?? [] as $slot => $state) {
+            $available = ($state & 1) !== 0;
+            $details = ['Verfügbar' => $available, 'Rohwert' => $state];
+            if ($available) {
+                $availableSlots[] = $slot;
+                $details += [
+                    'Betriebsart' => ($state & 2) !== 0 ? 'Solarbetrieb' : 'Mischbetrieb',
+                    'Laden freigegeben' => ($state & 4) === 0,
+                    'Auto lädt' => ($state & 8) !== 0,
+                    'Fahrzeug angeschlossen' => ($state & 32) !== 0,
+                    'Aktive Phasen laut efy-Status' => ($state & 4096) !== 0 ? 1 : 3
+                ];
+                $charging = $details['Auto lädt'] ? 'lädt' : 'lädt nicht';
+                $summary[] = "Slot $slot: " . $details['Betriebsart'] . ", $charging";
             }
+            $wallboxes['Slot ' . $slot] = $details;
         }
         $this->setGroupedValue('Wallboxes', $summary === [] ? $wallboxStatus : implode(' | ', $summary));
         $this->publishJson('WallboxDetails', $wallboxes);
-        $slot = $this->chooseWallboxSlot($availableSlots, $this->ReadPropertyInteger('WallboxSlot'));
+        $slot = $availableSlots[0] ?? -1;
         if (count($availableSlots) > 1) {
             $notes['Wallbox-Zuordnung'] = 'Übersicht verwendet Slot ' . $slot . '. Alle erkannten Wallboxen stehen unter Zubehör.';
         }
@@ -1039,10 +1036,12 @@ PHP;
         }
         $this->publishJson('PowerMeters', $meterData);
         $farm = $this->ReadPropertyInteger('FarmConsumptionMeter');
-        $heatPump = $this->ReadPropertyInteger('HeatPumpMeter');
+        $heatPump = -1;
         if ($auto && $meters !== null) {
             $farm = $this->resolveMeter($meters, $farm, 5, 'Farmzähler', $notes);
-            $heatPump = $this->resolveMeter($meters, $heatPump, 4, 'Zusatzverbrauchszähler', $notes);
+        }
+        if ($this->isFarmMode() && $meters !== null) {
+            $heatPump = $this->resolveMeter($meters, -1, 4, 'Zusatzverbrauchszähler', $notes);
         }
         $this->publishJson('DetectedFarmDevices', [
             'Farmzähler' => $farm >= 0 ? $farm : null,
@@ -1149,16 +1148,24 @@ PHP;
         ));
     }
 
-    private function chooseWallboxSlot(array $available, int $preferred): int
-    {
-        return in_array($preferred, $available, true) ? $preferred : ($available[0] ?? -1);
-    }
-
     public function GetConfigurationForm(): string
     {
         $form = json_decode(file_get_contents(__DIR__ . '/form.json'), true, 512, JSON_THROW_ON_ERROR);
         $root = @IPS_GetObjectIDByIdent('CategoryAccessories', $this->InstanceID);
         $rows = $this->accessorySettings() ?? [];
+        $roles = [];
+        $assignmentId = $this->findGroupedVariable('DetectedFarmDevices', $this->InstanceID);
+        $assignments = $assignmentId !== false ? $this->decodeJsonArray(GetValue($assignmentId)) : null;
+        foreach ([
+            'Farmzähler' => ['Zaehler', 'Farmzähler'],
+            'Zusatzverbrauchszähler' => ['Zaehler', 'Zusatzverbrauch'],
+            'Wallbox-Slot' => ['Wallbox', 'Wallbox-Übersicht']
+        ] as $name => [$prefix, $role]) {
+            $index = $assignments[$name] ?? null;
+            if (is_int($index) && $index >= 0) {
+                $roles[$prefix . $index] = $role;
+            }
+        }
         foreach ($root !== false && IPS_CategoryExists($root) ? IPS_GetChildrenIDs($root) : [] as $category) {
             if (!IPS_CategoryExists($category)) {
                 continue;
@@ -1170,6 +1177,7 @@ PHP;
                 'Key' => $key,
                 'Name' => ($setting['Name'] ?? '') !== '' ? $setting['Name'] : IPS_GetName($category),
                 'Visible' => $setting['Visible'] ?? true,
+                'Role' => $roles[$key] ?? '',
                 'Current' => $current !== false && IPS_VariableExists($current) && GetValue($current)
                     ? 'Erkannt' : 'Zuletzt erkannt'
             ];
@@ -1207,6 +1215,7 @@ PHP;
                 'Key' => $key,
                 'Name' => (string) ($row['Name'] ?? ''),
                 'Visible' => (bool) ($row['Visible'] ?? true),
+                'Role' => '',
                 'Current' => 'Noch nicht erkannt'
             ];
         }
@@ -1874,7 +1883,8 @@ PHP;
             return $matches[0];
         }
         if ($matches !== []) {
-            $notes[$name] = 'Mehrere Zähler dieses Typs gefunden. Bitte den gewünschten Index wählen.';
+            $notes[$name] = $type === 4 ? 'Mehrere Typ-4-Zähler erkannt. Kein eindeutiger Zusatzverbrauchszähler.'
+                : 'Mehrere Zähler dieses Typs gefunden. Bitte den gewünschten Index wählen.';
         }
         return -1;
     }

@@ -286,13 +286,13 @@ berechnungen bleiben zum Abgleich sichtbar. Prognosen erfordern
 weiterhin eine vorhandene Symcon-Variable als Quelle.
 
 
-Optionaler Zusatzverbrauch ab 0.9.4
-Unter „Zusatzzähler, Wallbox und Zubehör“ kann ein separater Zähler einen bereits
-im Gesamtverbrauch enthaltenen Verbraucher ausweisen. Standardmäßig
-wird ein eindeutiger Typ-4-Zähler erkannt. Index −2 deaktiviert die
-Aufteilung, Index 0–7 wählt den Zähler manuell. Den Anzeigenamen,
-zum Beispiel „Wärmepumpe“, in der Zubehörtabelle bearbeiten. Ohne gültigen Zusatzverbrauchszähler
-liefert der Farmzähler weiterhin die Grundlage für Netz und Gesamtverbrauch.
+Optionaler Zusatzverbrauch
+Die Tabelle unter „Zusatzzähler, Wallbox und Zubehör“ zeigt den
+automatisch zugeordneten Zusatzverbrauchszähler und Wallbox-Slot.
+Ein eindeutiger Typ-4-Zähler wird in der Farm als Zusatzverbrauch
+verwendet. Bei mehreren Typ-4-Zählern bleibt die Aufteilung aus.
+Netz- und Gesamtverbrauch werden unabhängig davon ermittelt.
+
 
 
 Wechselrichter in einer Farm ab 0.9.7
