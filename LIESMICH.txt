@@ -1,4 +1,4 @@
-E3DC Farm 0.9.6 für IP-Symcon 9.0
+E3DC Farm 0.9.7 für IP-Symcon 9.0
 
 Installation
 1. Auf dem Rechner, auf dem der IP-Symcon-Dienst läuft, den Ordner
@@ -293,3 +293,11 @@ wird ein eindeutiger Typ-4-Zähler erkannt. Index −2 deaktiviert die
 Aufteilung, Index 0–7 wählt den Zähler manuell. Der Anzeigename kann
 zum Beispiel „Wärmepumpe“ lauten. Ohne gültigen Zusatzverbrauchszähler
 liefert der Farmzähler weiterhin die Grundlage für Netz und Gesamtverbrauch.
+
+
+Wechselrichter in einer Farm ab 0.9.7
+Das Modul liest die Wechselrichterregister beider Farmgeräte.
+Das zweite Farmgerät besitzt eigene Zubehöreinträge, da derselbe
+Wechselrichterindex auf beiden Geräten vorkommen kann. Bei Zuordnung
+über eine ältere zweite Symcon-Instanz werden deren aktuelle
+Wechselrichterdetails verwendet.

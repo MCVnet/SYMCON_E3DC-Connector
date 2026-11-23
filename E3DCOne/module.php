@@ -1010,8 +1010,9 @@ PHP;
             $notes['Speicherenergie (Quelle)'] = 'Restenergie aus eingetragener Kapazität und Geräte-SOC geschätzt.';
         }
         $this->setGroupedValue('BatteryEnergyValid', $hasBatteryEnergy);
+        $peerInverters = [];
         if ($this->isFarmMode()) {
-            $this->publishFarmBattery($batteryData, $farmBalance, $notes);
+            $this->publishFarmBattery($batteryData, $farmBalance, $notes, $peerInverters);
         }
 
         $remote = [];
@@ -1026,6 +1027,22 @@ PHP;
         }
         $this->publishJson('RemoteStatus', $remote);
 
+        $inverters = $this->readInverters($read);
+        $this->publishJson('Inverters', $inverters);
+
+        $accessories = [
+            'Wallbox' => array_filter($wallboxes, static fn (array $entry): bool => $entry['Verfügbar']),
+            'Zaehler' => array_filter($meterData, static fn ($entry): bool => is_array($entry) && $entry['Typ'] !== 0),
+            'String' => array_filter($stringData, static fn (array $entry): bool => array_sum($entry) !== 0),
+            'Wechselrichter' => $this->detectedInverters($inverters),
+            'WechselrichterZweit' => $this->detectedInverters($peerInverters)
+        ];
+        $this->publishAccessories($accessories, $farm, $heatPump);
+        $this->publishJson('ReadNotes', $notes);
+    }
+
+    private function readInverters(callable $read): array
+    {
         $inverters = [];
         for ($index = 0; $index < 8; $index++) {
             $label = 'Wechselrichter ' . $index;
@@ -1051,17 +1068,15 @@ PHP;
             }
             $inverters[$label] = $entry;
         }
-        $this->publishJson('Inverters', $inverters);
+        return $inverters;
+    }
 
-        $accessories = [
-            'Wallbox' => array_filter($wallboxes, static fn (array $entry): bool => $entry['Verfügbar']),
-            'Zaehler' => array_filter($meterData, static fn ($entry): bool => is_array($entry) && $entry['Typ'] !== 0),
-            'String' => array_filter($stringData, static fn (array $entry): bool => array_sum($entry) !== 0),
-            'Wechselrichter' => array_filter($inverters, static fn (array $entry): bool => $entry['Frequenz L1 (Hz)'] > 0
-                || $entry['L1']['AC-Spannung (V)'] > 0 || $entry['L1']['DC-Spannung (V)'] > 0)
-        ];
-        $this->publishAccessories($accessories, $farm, $heatPump);
-        $this->publishJson('ReadNotes', $notes);
+    private function detectedInverters(array $entries): array
+    {
+        return array_filter($entries, static fn ($entry): bool => is_array($entry) && (
+            ($entry['Frequenz L1 (Hz)'] ?? 0) > 0 || ($entry['L1']['AC-Spannung (V)'] ?? 0) > 0
+            || ($entry['L1']['DC-Spannung (V)'] ?? 0) > 0
+        ));
     }
 
     private function chooseWallboxSlot(array $available, int $preferred): int
@@ -1141,6 +1156,7 @@ PHP;
                     $kind === 'Zaehler' && $index === $heatPump => trim($this->ReadPropertyString('AdditionalConsumerName')) ?: 'Zusatzverbrauchszähler',
                     $kind === 'Zaehler' => 'Zähler ' . $index,
                     $kind === 'String' => 'MPP-Tracker ' . $index,
+                    $kind === 'WechselrichterZweit' => 'Wechselrichter ' . $index . ' – zweites Farmgerät',
                     default => $kind . ' ' . $index
                 };
                 $category = $this->accessoryCategory($root, $key, $name !== '' ? $name : $defaultName);
@@ -1299,7 +1315,7 @@ PHP;
         }
     }
 
-    private function publishFarmBattery(array $local, ?array $farmBalance, array &$notes): void
+    private function publishFarmBattery(array $local, ?array $farmBalance, array &$notes, array &$peerInverters): void
     {
         $this->setGroupedValue('FarmPowerValid', false);
         $this->setGroupedValue('FarmBatteryValid', false);
@@ -1318,7 +1334,7 @@ PHP;
         if ($snapshot === null) {
             return;
         }
-        [$pv, $power, $soc, $remote] = $snapshot;
+        [$pv, $power, $soc, $remote, $peerInverters] = $snapshot;
         $this->setGroupedValue('SecondPV', $pv);
         $this->setGroupedValue('SecondBattery', $power);
         $this->setGroupedValue('SecondSOC', $soc);
@@ -1396,7 +1412,14 @@ PHP;
             }
             $remote = $this->batteryWithFallback($remote, $capacity, $soc);
         }
-        return [GetValue($pvId), GetValue($powerId), is_int($soc) ? $soc : -1, $remote];
+        $inverters = [];
+        $inverterId = $this->findGroupedVariable('Inverters', $peer);
+        if ($inverterId !== false && time() - IPS_GetVariable($inverterId)['VariableUpdated'] <= $maxAge) {
+            $data = GetValue($inverterId);
+            $decoded = is_string($data) ? json_decode($data, true) : null;
+            $inverters = is_array($decoded) ? $decoded : [];
+        }
+        return [GetValue($pvId), GetValue($powerId), is_int($soc) ? $soc : -1, $remote, $inverters];
     }
 
     private function readSecondOne(string $host, array &$notes): array
@@ -1424,7 +1447,7 @@ PHP;
             $energy = [];
             try {
                 usleep(110000);
-                $registers = $this->readRegisters($socket, $unit, $transaction, 40206, 4);
+                $registers = $this->readRegisters($socket, $unit, $transaction++, 40206, 4);
                 $energy = [
                     'Verbleibende Energie (Wh)' => $this->signed32($registers, 0),
                     'Max. speicherbare Energie (Wh)' => $this->signed32($registers, 2)
@@ -1434,7 +1457,21 @@ PHP;
             }
             $soc = $core[15] ?? -1;
             $energy = $this->batteryWithFallback($energy, $this->ReadPropertyInteger('SecondCapacityFallbackWh'), $soc);
-            return [$this->signed32($core, 0), $this->signed32($core, 2), $soc, $energy];
+            $connectionUsable = true;
+            $inverters = $this->readInverters(function (string $label, int $address, int $count) use ($socket, $unit, &$transaction, &$notes, &$connectionUsable): ?array {
+                if (!$connectionUsable) {
+                    return null;
+                }
+                usleep(110000);
+                try {
+                    return $this->readRegisters($socket, $unit, $transaction++, $address, $count);
+                } catch (RuntimeException $error) {
+                    $notes[$label . ' – zweites Farmgerät'] = $error->getMessage();
+                    $connectionUsable = str_starts_with($error->getMessage(), 'Modbus-Ausnahme ');
+                    return null;
+                }
+            });
+            return [$this->signed32($core, 0), $this->signed32($core, 2), $soc, $energy, $inverters];
         } finally {
             fclose($socket);
         }
