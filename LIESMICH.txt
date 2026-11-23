@@ -1,4 +1,4 @@
-E3DC Farm 0.7.6 für IP-Symcon 9.0
+E3DC Farm 0.7.7 für IP-Symcon 9.0
 
 Installation
 1. Auf dem Rechner, auf dem der IP-Symcon-Dienst läuft, den Ordner
@@ -143,3 +143,9 @@ Tageszähler dieses Moduls werden weiterhin aus Messwerten gebildet.
 Eine E3/DC-Solarprognose wird auch in der HACS-Abfrage nicht gelesen.
 
 Referenz: https://github.com/torbennehmer/hacs-e3dc/tree/main/custom_components/e3dc_rscp
+
+Gruppierung im Objektbaum
+Unter jeder Instanz werden Farm live, Batterie und Speicher, Wallbox,
+Tageswerte und Prognose, Farmmaster, Zweiter one und Diagnose und
+Status angelegt. Die Einträge darin sind Links auf die Modulvariablen,
+damit bestehende Variablen-IDs, Archive und Ident-Lookups erhalten bleiben.

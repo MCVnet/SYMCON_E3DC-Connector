@@ -130,6 +130,7 @@ class E3DCOne extends IPSModule
     public function ApplyChanges()
     {
         parent::ApplyChanges();
+        $this->groupVariables();
         $this->SetTimerInterval('PollTimer', 0);
         $this->SetValue('FarmBatteryValid', false);
         $this->SetValue('BatteryEnergyValid', false);
@@ -140,6 +141,77 @@ class E3DCOne extends IPSModule
             return;
         }
         $this->SetTimerInterval('PollTimer', max(5, min(3600, $this->ReadPropertyInteger('Interval'))) * 1000);
+    }
+
+    private function groupVariables(): void
+    {
+        $groups = [
+            'Farm' => ['Farm live', [
+                'FarmPV', 'FarmGrid', 'FarmGridImport', 'FarmGridExport', 'FarmConsumption',
+                'FarmHouseConsumption', 'HeatPumpConsumption', 'FarmAutarky',
+                'FarmWallboxPower', 'FarmPowerValid', 'FarmConsumptionValid'
+            ]],
+            'Storage' => ['Batterie und Speicher', [
+                'FarmBatterySOC', 'FarmBatteryPower', 'FarmBatteryChargePower', 'FarmBatteryDischargePower',
+                'FarmBatteryCapacity', 'FarmBatteryEnergy', 'FarmBatteryValid', 'SOC', 'Battery',
+                'BatteryChargePower', 'BatteryDischargePower', 'BatteryCapacity', 'BatteryEnergy',
+                'BatteryEnergyValid', 'BatteryDetails'
+            ]],
+            'Wallbox' => ['Wallbox', [
+                'WallboxAvailable', 'WallboxPower', 'WallboxSolar', 'WallboxCharging',
+                'WallboxChargeAllowed', 'WallboxSolarMode', 'WallboxPhaseMode',
+                'WallboxVehicleConnected', 'Wallboxes', 'WallboxDetails'
+            ]],
+            'Daily' => ['Tageswerte und Prognose', [
+                'DayForecast', 'DayForecastAvailable', 'DayStart', ...array_keys(self::DAILY)
+            ]],
+            'Master' => ['Farmmaster', [
+                'PV', 'House', 'Grid', 'GridImport', 'GridExport', 'External',
+                'Manufacturer', 'Model', 'Serial', 'Firmware', 'ModbusVersion'
+            ]],
+            'Second' => ['Zweiter one', [
+                'SecondOneValid', 'SecondPV', 'SecondBattery', 'SecondSOC', 'SecondCapacity'
+            ]],
+            'Diagnostics' => ['Diagnose und Status', [
+                'DataStatus', 'LastSuccess', 'LanSetupStatus', 'ReadNotes', 'RegisterCount',
+                'PowerMeters', 'DCStrings', 'Inverters', 'SGReadyState', 'SGReadyValid',
+                'EmergencyState', 'Emergency', 'EMS', 'EMSFlags', 'EfficiencyRaw', 'RemoteStatus'
+            ]]
+        ];
+
+        $groupPosition = -100;
+        foreach ($groups as $key => [$label, $idents]) {
+            $groupIdent = 'E3DCGroup' . $key;
+            $category = @IPS_GetObjectIDByIdent($groupIdent, $this->InstanceID);
+            if ($category === false) {
+                $category = IPS_CreateCategory();
+                IPS_SetParent($category, $this->InstanceID);
+                IPS_SetIdent($category, $groupIdent);
+                IPS_SetName($category, $label);
+                IPS_SetPosition($category, $groupPosition);
+            }
+            $groupPosition += 10;
+            if (!IPS_CategoryExists($category)) {
+                continue;
+            }
+            foreach ($idents as $position => $ident) {
+                $target = @IPS_GetObjectIDByIdent($ident, $this->InstanceID);
+                if ($target === false || !IPS_VariableExists($target)) {
+                    continue;
+                }
+                $link = @IPS_GetObjectIDByIdent($ident, $category);
+                if ($link === false) {
+                    $link = IPS_CreateLink();
+                    IPS_SetParent($link, $category);
+                    IPS_SetIdent($link, $ident);
+                    IPS_SetName($link, IPS_GetName($target));
+                    IPS_SetPosition($link, $position * 10);
+                }
+                if (IPS_LinkExists($link) && IPS_GetLink($link)['TargetID'] !== $target) {
+                    IPS_SetLinkTargetID($link, $target);
+                }
+            }
+        }
     }
 
     public function DiscoverLAN(string $network, string $master, int $port, int $unit): string
