@@ -1,4 +1,4 @@
-E3DC Farm 0.6 für IP-Symcon 9.0
+E3DC Farm 0.7 für IP-Symcon 9.0
 
 Installation
 1. Auf dem Rechner, auf dem der IP-Symcon-Dienst läuft, den Ordner
@@ -6,12 +6,12 @@ Installation
    Symcon-Datenverzeichnisses kopieren. Den Datenpfad liefert das
    Symcon-Skript: echo IPS_GetKernelDir();
    Die Bibliothek liegt dann unter modules/E3DCFarm/library.json.
-2. IP-Symcon-Dienst neu starten. Zweimal die Instanz
-   „E3/DC one (Farm)“ anlegen: einmal für den Farmmaster und einmal
-   für den zweiten one.
+2. IP-Symcon-Dienst neu starten und eine Instanz
+   „E3/DC one (Farm)“ anlegen. Bei einem Update die vorhandene
+   Farmmaster-Instanz weiterverwenden.
 3. Auf beiden Geräten Modbus/TCP im E3/DC Simple Mode für den
-   Zugriff aus dem lokalen Netzwerk aktivieren. Pro Instanz die
-   passende IP-Adresse, den Port und die Unit-ID eintragen.
+   Zugriff aus dem lokalen Netzwerk aktivieren. In der Instanz beide
+   IP-Adressen, den gemeinsamen Port und die Unit-ID eintragen.
    Voreinstellungen: Port 502, Unit-ID 1, Abfrage alle 15 Sekunden.
 4. Am Farmmaster „Wallbox-Slots prüfen“ aktivieren. Änderungen
    übernehmen, dann „Jetzt auslesen“ wählen. Unter „Datenstatus“
@@ -29,7 +29,7 @@ Anzeigen und Grenzen
   Die Slot-Erkennung ermittelt kein Wallbox-Modell.
 - Bei Kommunikationsfehlern bleiben die zuletzt empfangenen Werte
   sichtbar. „Letzte erfolgreiche Abfrage“ zeigt ihren Zeitstand.
-- Version 0.6 sendet ausschließlich Modbus-Leseanfragen im
+- Version 0.7 sendet ausschließlich Modbus-Leseanfragen im
   E3/DC Simple Mode. Optionale Detailgruppen stehen als JSON
   in je einer Stringvariablen. Geräteinformationen und die bisherigen
   Leistungswerte sind separate Variablen.
@@ -99,3 +99,15 @@ Kapazitäts-Ersatzwert
 Liefert ein one keine plausiblen Energieregister, kann je Instanz
 die bekannte nutzbare Kapazität in Wh eingetragen werden.
 Die Restenergie wird dann aus Kapazität und Geräte-SOC geschätzt.
+
+Betrieb beider one aus einer Instanz (ab Version 0.7)
+Die bisherige Farmmaster-Instanz behalten. Darin per LAN-Suche das
+private IPv4-/24-Netz mit dem eingestellten Modbus-Port und der
+Unit-ID aus Symcon durchsuchen. Beide Treffer anhand der Seriennummer
+zuordnen. Die IP-Adressen für Farmmaster und zweiten one eintragen.
+Für beide IP-Adressen gelten derselbe Port und dieselbe Unit-ID.
+Die direkte zweite IP-Adresse hat Vorrang vor der bisherigen
+Verknüpfung mit einer separaten Symcon-Instanz. Hat der zweite one
+einen konfigurierten Kapazitäts-Ersatzwert, diesen in das neue Feld
+am Farmmaster übertragen. Die alte Instanz kann für bestehende
+Referenzen erhalten bleiben. Das Modul verwendet weiterhin Lesezugriffe.

@@ -3,7 +3,17 @@
     {
       "type": "ValidationTextBox",
       "name": "Host",
-      "caption": "IP-Adresse des one"
+      "caption": "IP-Adresse des Farmmasters"
+    },
+    {
+      "type": "ValidationTextBox",
+      "name": "SecondHost",
+      "caption": "IP-Adresse des zweiten one"
+    },
+    {
+      "type": "ValidationTextBox",
+      "name": "LanNetwork",
+      "caption": "LAN-Suchnetz (z. B. 192.168.178.0/24, leer = Netz der Farmmaster-IP)"
     },
     {
       "type": "NumberSpinner",
@@ -48,7 +58,7 @@
     {
       "type": "SelectInstance",
       "name": "SecondOne",
-      "caption": "Zweiter one für die Farm-Batteriewerte"
+      "caption": "Vorhandene zweite Symcon-Instanz (nur ohne zweite IP-Adresse)"
     },
     {
       "type": "SelectVariable",
@@ -61,6 +71,18 @@
       "caption": "Nutzbare Speicherkapazität als Ersatzwert (Wh, 0 = aus)",
       "minimum": 0,
       "maximum": 1000000
+    },
+    {
+      "type": "NumberSpinner",
+      "name": "SecondCapacityFallbackWh",
+      "caption": "Nutzbare Ersatzkapazität des zweiten one (Wh, 0 = aus)",
+      "minimum": 0,
+      "maximum": 1000000
+    },
+    {
+      "type": "Button",
+      "caption": "E3/DC one im LAN suchen",
+      "onClick": "echo E3DCF_DiscoverLAN($id, $LanNetwork, $Host, $Port, $Unit);"
     }
   ],
   "actions": [

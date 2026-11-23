@@ -47,6 +47,9 @@ class E3DCOne extends IPSModule
         $this->RegisterPropertyInteger('FarmConsumptionMeter', -1);
         $this->RegisterPropertyInteger('HeatPumpMeter', -1);
         $this->RegisterPropertyInteger('SecondOne', 0);
+        $this->RegisterPropertyString('SecondHost', '');
+        $this->RegisterPropertyString('LanNetwork', '');
+        $this->RegisterPropertyInteger('SecondCapacityFallbackWh', 0);
         $this->RegisterPropertyInteger('ForecastSource', 0);
         $this->RegisterPropertyInteger('CapacityFallbackWh', 0);
         $this->RegisterAttributeString('DailyTotals', '{}');
@@ -92,6 +95,11 @@ class E3DCOne extends IPSModule
         $this->RegisterVariableFloat('DayForecast', 'Solarprognose heute (kWh)', '', 50);
         $this->RegisterVariableBoolean('DayForecastAvailable', 'Solarprognose verfügbar', '', 51);
         $this->RegisterVariableInteger('DayStart', 'Tageserfassung seit', '~UnixTimestamp', 52);
+        $this->RegisterVariableInteger('SecondPV', 'Zweiter one PV-Leistung (W)', '', 62);
+        $this->RegisterVariableInteger('SecondBattery', 'Zweiter one Batterieleistung (W)', '', 63);
+        $this->RegisterVariableInteger('SecondSOC', 'Zweiter one Batterieladezustand (%)', '', 64);
+        $this->RegisterVariableFloat('SecondCapacity', 'Zweiter one Speicherkapazität (kWh)', '', 65);
+        $this->RegisterVariableBoolean('SecondOneValid', 'Zweiter one erreichbar', '', 66);
         $dayPosition = 53;
         foreach (self::DAILY as $ident => $label) {
             $this->RegisterVariableFloat($ident, $label, '', $dayPosition++);
@@ -109,11 +117,83 @@ class E3DCOne extends IPSModule
         $this->SetValue('FarmBatteryValid', false);
         $this->SetValue('BatteryEnergyValid', false);
         $this->SetValue('FarmPowerValid', false);
+        $this->SetValue('SecondOneValid', false);
         if (trim($this->ReadPropertyString('Host')) === '') {
             $this->SetStatus(104);
             return;
         }
         $this->SetTimerInterval('PollTimer', max(5, min(3600, $this->ReadPropertyInteger('Interval'))) * 1000);
+    }
+
+    public function DiscoverLAN(string $network, string $master, int $port, int $unit): string
+    {
+        $network = trim($network);
+        if ($network === '') {
+            $network = trim($master);
+        }
+        $network = preg_replace('~/24$~', '', $network);
+        if (!filter_var($network, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)
+            || !preg_match('/^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)/', $network)
+            || $port < 1 || $port > 65535 || $unit < 0 || $unit > 255) {
+            return 'Eine private IPv4-Adresse oder ein privates /24-Netz sowie gültige Modbus-Einstellungen eingeben.';
+        }
+        $prefix = substr($network, 0, strrpos($network, '.') + 1);
+        $matches = [];
+        foreach (array_chunk(range(1, 254), 24) as $batch) {
+            $pending = [];
+            foreach ($batch as $lastOctet) {
+                $host = $prefix . $lastOctet;
+                $socket = @stream_socket_client('tcp://' . $host . ':' . $port, $errorCode, $errorText, 0.25,
+                    STREAM_CLIENT_CONNECT | STREAM_CLIENT_ASYNC_CONNECT);
+                if ($socket !== false) {
+                    $pending[$host] = $socket;
+                }
+            }
+            try {
+                $deadline = microtime(true) + 0.3;
+                while ($pending !== [] && microtime(true) < $deadline) {
+                    $writable = $pending;
+                    $readable = null;
+                    $exceptions = null;
+                    $remaining = max(0, (int) (($deadline - microtime(true)) * 1000000));
+                    if (@stream_select($readable, $writable, $exceptions, 0, $remaining) < 1) {
+                        break;
+                    }
+                    foreach ($writable as $host => $socket) {
+                        unset($pending[$host]);
+                        try {
+                            if (@stream_socket_get_name($socket, true) === false) {
+                                continue;
+                            }
+                            stream_set_blocking($socket, true);
+                            stream_set_timeout($socket, 0, 300000);
+                            if ($this->readRegisters($socket, $unit, 1, 40001, 1)[0] !== 0xE3DC) {
+                                continue;
+                            }
+                            usleep(110000);
+                            $identity = $this->readRegisters($socket, $unit, 2, 40020, 32);
+                            $model = $this->decodeText(array_slice($identity, 0, 16));
+                            if (strcasecmp($model, 'one') === 0) {
+                                $matches[] = $host . ' — E3/DC one — ' . $this->decodeText(array_slice($identity, 16, 16));
+                            }
+                        } catch (RuntimeException $error) {
+                            // The port can be open on devices that do not speak E3/DC Modbus.
+                        } finally {
+                            fclose($socket);
+                        }
+                    }
+                }
+            } finally {
+                foreach ($pending as $socket) {
+                    fclose($socket);
+                }
+            }
+        }
+
+        if ($matches === []) {
+            return 'Kein E3/DC one gefunden. Modbus/TCP im E3/DC Simple Mode, Netz, Port und Unit-ID prüfen.';
+        }
+        return implode("\n", $matches) . "\n\nDie IP-Adressen in die Felder für Farmmaster und zweiten one eintragen.";
     }
 
     public function Poll(): void
@@ -158,6 +238,7 @@ class E3DCOne extends IPSModule
             $this->SetValue('FarmBatteryValid', false);
             $this->SetValue('BatteryEnergyValid', false);
             $this->SetValue('FarmPowerValid', false);
+            $this->SetValue('SecondOneValid', false);
             $this->publishDaily(false);
             $this->SetValue('DataStatus', $error->getMessage());
             $this->SetStatus(201);
@@ -238,7 +319,7 @@ class E3DCOne extends IPSModule
         if ($identity !== null) {
             foreach (['Manufacturer', 'Model', 'Serial', 'Firmware'] as $index => $ident) {
                 $fields = array_slice($identity, 2 + 16 * $index, 16);
-                $this->SetValue($ident, trim(explode("\0", pack('n*', ...$fields), 2)[0]));
+                $this->SetValue($ident, $this->decodeText($fields));
             }
             $this->SetValue('ModbusVersion', sprintf('%d.%d', $identity[0] >> 8, $identity[0] & 255));
             $this->SetValue('RegisterCount', $identity[1]);
@@ -349,41 +430,29 @@ class E3DCOne extends IPSModule
     private function publishFarmBattery(array $local, array &$notes): void
     {
         $this->SetValue('FarmPowerValid', false);
-        $peer = $this->ReadPropertyInteger('SecondOne');
-        if ($peer === 0) {
+        $this->SetValue('FarmBatteryValid', false);
+        $secondHost = trim($this->ReadPropertyString('SecondHost'));
+        if ($secondHost === '') {
+            $snapshot = $this->readLegacyPeer($notes);
+        } else {
+            try {
+                $snapshot = $this->readSecondOne($secondHost, $notes);
+            } catch (RuntimeException $error) {
+                $notes['Zweiter one'] = $error->getMessage();
+                $snapshot = null;
+            }
+        }
+        $this->SetValue('SecondOneValid', $snapshot !== null);
+        if ($snapshot === null) {
             return;
         }
-        $moduleId = '{AAEF96D2-6F24-4FF9-9C9C-C7FECE2C1559}';
-        if ($peer === $this->InstanceID || !IPS_InstanceExists($peer)
-            || IPS_GetInstance($peer)['ModuleInfo']['ModuleID'] !== $moduleId) {
-            $this->SetValue('FarmBatteryValid', false);
-            $notes['Farm-Batterie'] = 'Die Instanz des zweiten one auswählen.';
-            return;
-        }
-        $pvId = @IPS_GetObjectIDByIdent('PV', $peer);
-        $powerId = @IPS_GetObjectIDByIdent('Battery', $peer);
-        $statusId = @IPS_GetObjectIDByIdent('LastSuccess', $peer);
-        $detailsId = @IPS_GetObjectIDByIdent('BatteryDetails', $peer);
-        $peerInterval = max(5, min(3600, IPS_GetProperty($peer, 'Interval')));
-        $maxAge = 2 * $peerInterval + 10;
-        if ($pvId <= 0 || $powerId <= 0 || $statusId <= 0
-            || IPS_GetInstance($peer)['InstanceStatus'] !== 102
-            || time() - GetValue($statusId) > $maxAge) {
-            $this->SetValue('FarmBatteryValid', false);
-            $notes['Farm-Leistung'] = 'Aktuelle Leistungsdaten des zweiten one erforderlich.';
-            return;
-        }
-        $this->publishFarmPower(GetValue($pvId), GetValue($powerId));
+        [$pv, $power, $soc, $remote] = $snapshot;
+        $this->SetValue('SecondPV', $pv);
+        $this->SetValue('SecondBattery', $power);
+        $this->SetValue('SecondSOC', $soc);
+        $this->SetValue('SecondCapacity', ($remote['Max. speicherbare Energie (Wh)'] ?? 0) / 1000);
+        $this->publishFarmPower($pv, $power);
 
-        $remote = [];
-        if ($detailsId > 0 && time() - IPS_GetVariable($detailsId)['VariableUpdated'] <= $maxAge) {
-            $remote = json_decode(GetValue($detailsId), true) ?? [];
-        }
-
-        $socId = @IPS_GetObjectIDByIdent('SOC', $peer);
-        if ($socId > 0) {
-            $remote = $this->batteryWithFallback($remote, IPS_GetProperty($peer, 'CapacityFallbackWh'), GetValue($socId));
-        }
         if (($local['Geschätzt'] ?? false) || ($remote['Geschätzt'] ?? false)) {
             $notes['Farm-Batterie (Quelle)'] = 'Restenergie aus eingetragener Kapazität und Geräte-SOC geschätzt.';
         }
@@ -405,6 +474,86 @@ class E3DCOne extends IPSModule
         $this->SetValue('FarmBatteryEnergy', $energy / 1000);
         $this->SetValue('FarmBatterySOC', round(100 * $energy / $capacity, 1));
         $this->SetValue('FarmBatteryValid', true);
+    }
+
+    private function readLegacyPeer(array &$notes): ?array
+    {
+        $peer = $this->ReadPropertyInteger('SecondOne');
+        if ($peer === 0) {
+            return null;
+        }
+        $moduleId = '{AAEF96D2-6F24-4FF9-9C9C-C7FECE2C1559}';
+        if ($peer === $this->InstanceID || !IPS_InstanceExists($peer)
+            || IPS_GetInstance($peer)['ModuleInfo']['ModuleID'] !== $moduleId) {
+            $this->SetValue('FarmBatteryValid', false);
+            $notes['Farm-Batterie'] = 'Die Instanz des zweiten one auswählen.';
+            return null;
+        }
+        $pvId = @IPS_GetObjectIDByIdent('PV', $peer);
+        $powerId = @IPS_GetObjectIDByIdent('Battery', $peer);
+        $statusId = @IPS_GetObjectIDByIdent('LastSuccess', $peer);
+        $detailsId = @IPS_GetObjectIDByIdent('BatteryDetails', $peer);
+        $peerInterval = max(5, min(3600, IPS_GetProperty($peer, 'Interval')));
+        $maxAge = 2 * $peerInterval + 10;
+        if ($pvId <= 0 || $powerId <= 0 || $statusId <= 0
+            || IPS_GetInstance($peer)['InstanceStatus'] !== 102
+            || time() - GetValue($statusId) > $maxAge) {
+            $this->SetValue('FarmBatteryValid', false);
+            $notes['Farm-Leistung'] = 'Aktuelle Leistungsdaten des zweiten one erforderlich.';
+            return null;
+        }
+
+
+        $remote = [];
+        if ($detailsId > 0 && time() - IPS_GetVariable($detailsId)['VariableUpdated'] <= $maxAge) {
+            $remote = json_decode(GetValue($detailsId), true) ?? [];
+        }
+
+        $socId = @IPS_GetObjectIDByIdent('SOC', $peer);
+        if ($socId > 0) {
+            $remote = $this->batteryWithFallback($remote, IPS_GetProperty($peer, 'CapacityFallbackWh'), GetValue($socId));
+        }
+        return [GetValue($pvId), GetValue($powerId), $socId > 0 ? GetValue($socId) : 0, $remote];
+    }
+
+    private function readSecondOne(string $host, array &$notes): array
+    {
+        $master = trim($this->ReadPropertyString('Host'));
+        if (!filter_var($host, FILTER_VALIDATE_IP) || inet_pton($host) === inet_pton($master)) {
+            throw new RuntimeException('Eine andere gültige IP-Adresse für den zweiten one eingeben.');
+        }
+        $port = $this->ReadPropertyInteger('Port');
+        $unit = $this->ReadPropertyInteger('Unit');
+        $address = str_contains($host, ':') ? '[' . $host . ']' : $host;
+        $socket = @stream_socket_client('tcp://' . $address . ':' . $port, $errorCode, $errorText, 2.0);
+        if ($socket === false) {
+            throw new RuntimeException('TCP-Verbindung fehlgeschlagen (Fehler ' . $errorCode . ').');
+        }
+
+        try {
+            stream_set_timeout($socket, 2);
+            if ($this->readRegisters($socket, $unit, 1, 40001, 1)[0] !== 0xE3DC) {
+                throw new RuntimeException('E3/DC Simple Mode wurde am zweiten one nicht erkannt.');
+            }
+            usleep(110000);
+            $core = $this->readRegisters($socket, $unit, 2, 40068, 18);
+            $energy = [];
+            try {
+                usleep(110000);
+                $registers = $this->readRegisters($socket, $unit, 3, 40206, 4);
+                $energy = [
+                    'Verbleibende Energie (Wh)' => $this->signed32($registers, 0),
+                    'Max. speicherbare Energie (Wh)' => $this->signed32($registers, 2)
+                ];
+            } catch (RuntimeException $error) {
+                $notes['Speicherenergie des zweiten one'] = $error->getMessage();
+            }
+            $soc = $core[15];
+            $energy = $this->batteryWithFallback($energy, $this->ReadPropertyInteger('SecondCapacityFallbackWh'), $soc);
+            return [$this->signed32($core, 0), $this->signed32($core, 2), $soc, $energy];
+        } finally {
+            fclose($socket);
+        }
     }
 
     private function publishFarmPower(int $peerPV, int $peerBattery): void
@@ -442,7 +591,7 @@ class E3DCOne extends IPSModule
         }
         $this->SetValue('DayForecastAvailable', $forecastAvailable);
 
-        if ($this->ReadPropertyInteger('SecondOne') === 0) {
+        if (trim($this->ReadPropertyString('SecondHost')) === '' && $this->ReadPropertyInteger('SecondOne') === 0) {
             return;
         }
 
@@ -528,6 +677,11 @@ class E3DCOne extends IPSModule
         $this->SetValue('FarmConsumptionValid', true);
     }
 
+    private function decodeText(array $registers): string
+    {
+        return trim(explode("\0", pack('n*', ...$registers), 2)[0]);
+    }
+
     private function signed16(int $value): int
     {
         return $value >= 32768 ? $value - 65536 : $value;
@@ -546,7 +700,7 @@ class E3DCOne extends IPSModule
     private function readRegisters($socket, int $unit, int $transaction, int $register, int $count): array
     {
         $request = pack('nnnCCnn', $transaction, 0, 6, $unit, 3, $register - 1, $count);
-        if (fwrite($socket, $request) !== strlen($request)) {
+        if (@fwrite($socket, $request) !== strlen($request)) {
             throw new RuntimeException('Modbus-Anfrage konnte nicht gesendet werden.');
         }
         $header = unpack('ntransaction/nprotocol/nlength/Cunit', $this->readBytes($socket, 7));
@@ -568,7 +722,7 @@ class E3DCOne extends IPSModule
     {
         $data = '';
         while (strlen($data) < $length) {
-            $part = fread($socket, $length - strlen($data));
+            $part = @fread($socket, $length - strlen($data));
             if ($part === false || $part === '') {
                 throw new RuntimeException('Modbus-Antwort unvollständig oder Zeitlimit erreicht.');
             }

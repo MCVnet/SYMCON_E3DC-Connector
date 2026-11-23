@@ -1,5 +1,5 @@
 # SYMCON E3DC Connector
 
-Leseversion 0.6 für IP-Symcon 9.0. Zeigt Gerätewerte sowie konfigurierbare Leistungs- und Tagesenergiewerte der E3/DC-Farm an.
+Leseversion 0.7 für IP-Symcon 9.0. Findet E3/DC one im privaten LAN und liest beide Geräte einer Farm über eine Symcon-Instanz aus.
 
 [Installation und Funktionsumfang](LIESMICH.txt)
