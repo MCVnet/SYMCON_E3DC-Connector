@@ -79,12 +79,12 @@
         },
         {
           "type": "CheckBox",
-          "name": "FarmMeterMeasuresGrid",
-          "caption": "Farmzähler misst Netzbezug und Einspeisung"
+          "name": "FarmMeterIsConsumption",
+          "caption": "Farmzähler ist ein reiner Verbrauchszähler"
         },
         {
           "type": "Label",
-          "caption": "Nur einschalten, wenn die rohe Farmzähler-Leistung mit der Netzleistung im E3/DC-Portal übereinstimmt."
+          "caption": "Standardmäßig wird der Farmzähler als Netz-Messpunkt verwendet. Nur bei einem separaten Gesamtverbrauchszähler umschalten."
         },
         {
           "type": "NumberSpinner",

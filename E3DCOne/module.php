@@ -48,7 +48,7 @@ class E3DCOne extends IPSModule
         $this->RegisterPropertyBoolean('ReadWallbox', false);
         $this->RegisterPropertyInteger('WallboxSlot', -1);
         $this->RegisterPropertyInteger('FarmConsumptionMeter', -1);
-        $this->RegisterPropertyBoolean('FarmMeterMeasuresGrid', false);
+        $this->RegisterPropertyBoolean('FarmMeterIsConsumption', false);
         $this->RegisterPropertyInteger('HeatPumpMeter', -1);
         $this->RegisterPropertyInteger('SecondOne', 0);
         $this->RegisterPropertyString('SecondHost', '');
@@ -979,7 +979,7 @@ PHP;
         }
         [$meterPower, $heat] = $farmBalance;
         $external = $this->getGroupedValue('External');
-        if ($this->ReadPropertyBoolean('FarmMeterMeasuresGrid')) {
+        if (!$this->ReadPropertyBoolean('FarmMeterIsConsumption')) {
             $grid = $meterPower;
             $consumption = $grid + $pv + $external - $battery - $wallbox;
         } else {
@@ -1025,11 +1025,11 @@ PHP;
         $previousTime = $state['time'] ?? 0;
         $previousPowers = $state['powers'] ?? [];
         $maxGap = 2 * max(5, min(3600, $this->ReadPropertyInteger('Interval'))) + 10;
-        $canIntegrate = $valid && $previousPowers !== [] && $now > $previousTime && $now - $previousTime <= $maxGap;
+        $canIntegrate = $previousPowers !== [] && $now > $previousTime && $now - $previousTime <= $maxGap;
         if (($state['midnight'] ?? 0) !== $midnight) {
             $state = ['midnight' => $midnight, 'start' => $canIntegrate ? $midnight : 0, 'totals' => []];
         }
-        $balanceKey = $this->ReadPropertyBoolean('FarmMeterMeasuresGrid') ? 'grid-v2' : 'consumption-v2';
+        $balanceKey = !$this->ReadPropertyBoolean('FarmMeterIsConsumption') ? 'grid-v3' : 'consumption-v3';
         $balanceChanged = ($state['balanceKey'] ?? null) !== $balanceKey
             && ($state['totals'] ?? []) !== [];
         $balanceIdents = ['DayGridImport', 'DayGridExport', 'DayHouse', 'DayConsumption'];
@@ -1041,30 +1041,34 @@ PHP;
         }
         $state['balanceKey'] = $balanceKey;
         $powers = [];
-        if ($valid) {
-            $battery = $this->getGroupedValue('FarmBatteryPower');
+        // PV, battery and wallbox power are published before the farm balance is checked.
+        if ($this->getGroupedValue('SecondOneValid')) {
             $powers = [
                 'DayPV' => $this->getGroupedValue('FarmPV'),
-                'DayBatteryCharge' => max(0, $battery),
-                'DayBatteryDischarge' => max(0, -$battery),
-                'DayGridImport' => $this->getGroupedValue('FarmGridImport'),
-                'DayGridExport' => $this->getGroupedValue('FarmGridExport'),
-                'DayHouse' => $this->getGroupedValue('FarmHouseConsumption'),
-                'DayHeatPump' => $this->getGroupedValue('HeatPumpConsumption'),
-                'DayWallbox' => $this->getGroupedValue('FarmWallboxPower'),
-                'DayConsumption' => $this->getGroupedValue('FarmConsumption')
+                'DayBatteryCharge' => $this->getGroupedValue('FarmBatteryChargePower'),
+                'DayBatteryDischarge' => $this->getGroupedValue('FarmBatteryDischargePower'),
+                'DayWallbox' => $this->getGroupedValue('FarmWallboxPower')
             ];
             if ($state['start'] === 0) {
                 $state['start'] = $now;
             }
         }
+        if ($valid) {
+            $powers += [
+                'DayGridImport' => $this->getGroupedValue('FarmGridImport'),
+                'DayGridExport' => $this->getGroupedValue('FarmGridExport'),
+                'DayHouse' => $this->getGroupedValue('FarmHouseConsumption'),
+                'DayHeatPump' => $this->getGroupedValue('HeatPumpConsumption'),
+                'DayConsumption' => $this->getGroupedValue('FarmConsumption')
+            ];
+        }
 
         if ($valid && ($state['balanceStart'] ?? 0) === 0) {
-            $state['balanceStart'] = $canIntegrate && !$balanceChanged ? max($previousTime, $midnight) : $now;
+            $state['balanceStart'] = $canIntegrate && isset($previousPowers['DayConsumption']) ? max($previousTime, $midnight) : $now;
         }
         foreach (self::DAILY as $ident => $label) {
             $total = $state['totals'][$ident] ?? 0.0;
-            if ($canIntegrate && isset($previousPowers[$ident])) {
+            if ($canIntegrate && isset($previousPowers[$ident], $powers[$ident])) {
                 $seconds = $now - max($previousTime, $midnight);
                 $startPower = $previousPowers[$ident];
                 if ($previousTime < $midnight) {

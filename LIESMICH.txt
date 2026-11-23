@@ -1,4 +1,4 @@
-E3DC Farm 0.8.4 für IP-Symcon 9.0
+E3DC Farm 0.8.5 für IP-Symcon 9.0
 
 Installation
 1. Auf dem Rechner, auf dem der IP-Symcon-Dienst läuft, den Ordner
@@ -89,8 +89,8 @@ Tageswerte
 Der Farmmaster sammelt die Tagesenergie in kWh ab dem ersten
 gültigen Messpunkt. Die Zähler werden nach Serverzeit am Tageswechsel
 zurückgesetzt. Längere Abfragelücken werden nicht hochgerechnet.
-Die batterieseitige Lade-/Entladeenergie basiert auf der summierten
-Farmleistung. Gleichzeitig gegenläufige Leistungen heben sich auf.
+Seit Version 0.8.5 werden Lade- und Entladeleistung pro one
+getrennt addiert. Zuvor war die Batterie-Tagesenergie saldiert.
 Netzbezug und Einspeisung stammen aus der Farm-Leistungsbilanz.
 Die Solarprognose kann aus einer vorhandenen numerischen Symcon-
 Variable in kWh übernommen werden. Modbus liefert hier keine Prognose.
@@ -182,11 +182,13 @@ Verbrauchern die Zuordnung prüfen. Ein einzelner verfügbarer
 Wallbox-Slot wird ebenfalls erkannt. Fest gewählte Indizes haben
 Vorrang. Ergebnis: Diagnose und Status → Zähler- und Wallbox-Zuordnung.
 
-Farmbilanz prüfen
-Der Typ-5-Zähler kann je Installation einen anderen Messpunkt
-abbilden. „Farmzähler – vorzeichenbehaftete Leistung (W)“ zeigt
-seinen Wert. Falls er mit der Netzleistung des Portals übereinstimmt,
-„Farmzähler misst Netzbezug und Einspeisung“ einschalten.
-Die Verbrauchs- und Netzbilanz beginnt mit der korrigierten Zuordnung
-neu. Unplausible Messpunkte werden nicht hochgezählt. Die übrigen
-bereits erfassten Tageszähler bleiben erhalten.
+Farmbilanz
+Der Farmzähler wird standardmäßig als Netz-Messpunkt behandelt.
+Positiv bedeutet Netzbezug, negativ Einspeisung. Der Hausverbrauch
+ergibt sich aus Netzleistung plus PV und weitere Einspeiser,
+abzüglich Batterieladeleistung, Wallbox und Wärmepumpe. Eine
+negative Batterieleistung ist Entladung. Bei einem separaten
+Gesamtverbrauchszähler kann dessen Messpunkt im Formular gewählt
+werden. Die Umstellung startet die Tagesbilanz für Haus, Gesamt,
+Netzbezug und Einspeisung neu. Bereits erfasste Einzelzähler bleiben
+erhalten. Ältere Daten und Abfragelücken werden nicht nachberechnet.
