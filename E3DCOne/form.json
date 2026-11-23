@@ -118,24 +118,6 @@
         },
         {
           "type": "ExpansionPanel",
-          "caption": "Optionaler Zusatzverbrauch",
-          "expanded": false,
-          "items": [
-            {
-              "type": "Label",
-              "caption": "Ein separater Zähler kann einen im Gesamtverbrauch enthaltenen Verbraucher ausweisen. Ein eindeutiger Typ-4-Zähler wird automatisch erkannt. Den Namen des Zählers unter „Wallbox und Zubehör“ bearbeiten."
-            },
-            {
-              "type": "NumberSpinner",
-              "name": "HeatPumpMeter",
-              "caption": "Zählerindex (−2 = aus, −1 = Typ 4 automatisch)",
-              "minimum": -2,
-              "maximum": 7
-            }
-          ]
-        },
-        {
-          "type": "ExpansionPanel",
           "caption": "Vorhandene zweite Symcon-Instanz",
           "expanded": false,
           "items": [
@@ -286,6 +268,24 @@
           ],
           "loadValuesFromConfiguration": false,
           "values": []
+        },
+        {
+          "type": "ExpansionPanel",
+          "caption": "Optionaler Zusatzverbrauch",
+          "expanded": false,
+          "items": [
+            {
+              "type": "Label",
+              "caption": "Ein eindeutiger Typ-4-Zähler wird automatisch als Zusatzverbrauch zugeordnet. Den Namen kannst du in der Zubehörtabelle ändern."
+            },
+            {
+              "type": "NumberSpinner",
+              "name": "HeatPumpMeter",
+              "caption": "Zählerindex (−2 = aus, −1 = Typ 4 automatisch)",
+              "minimum": -2,
+              "maximum": 7
+            }
+          ]
         },
         {
           "type": "ExpansionPanel",
