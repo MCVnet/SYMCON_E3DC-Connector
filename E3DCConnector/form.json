@@ -371,14 +371,23 @@
       "expanded": false,
       "items": [
         {
-          "type": "CheckBox",
-          "name": "DetailFarm",
-          "caption": "Farmcontroller statt Einzelgerät abfragen"
-        },
-        {
-          "type": "CheckBox",
-          "name": "DetailSecond",
-          "caption": "Zweites Farmgerät auswählen"
+          "type": "Select",
+          "name": "DetailTarget",
+          "caption": "RSCP-Ziel",
+          "options": [
+            {
+              "value": "main",
+              "caption": "Hauptgerät (Einzelgeräte-Port)"
+            },
+            {
+              "value": "controller",
+              "caption": "Farmcontroller"
+            },
+            {
+              "value": "second",
+              "caption": "Zweites Farmgerät"
+            }
+          ]
         },
         {
           "type": "Select",
@@ -425,12 +434,12 @@
         {
           "type": "Button",
           "caption": "RSCP-Details lesen",
-          "onClick": "try { echo E3DCF_ReadRscpDetails($id, ($DetailSecond && !$DetailFarm), $DetailGroup, $DetailIndex, $DetailFarm); } catch (Throwable $e) { echo $e->getMessage(); }"
+          "onClick": "try { echo E3DCF_ReadRscpDetails($id, $DetailTarget === 'second', $DetailGroup, $DetailIndex, $DetailTarget === 'controller'); } catch (Throwable $e) { echo $e->getMessage(); }"
         },
         {
           "type": "Button",
           "caption": "Alle Datengruppen für Index 0 lesen",
-          "onClick": "echo E3DCF_ReadRscpDeviceOverview($id, ($DetailSecond && !$DetailFarm), $DetailFarm);"
+          "onClick": "echo E3DCF_ReadRscpDeviceOverview($id, $DetailTarget === 'second', $DetailTarget === 'controller');"
         }
       ]
     },

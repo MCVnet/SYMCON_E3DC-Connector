@@ -1096,6 +1096,19 @@ PHP;
             }
         }
         unset($section);
+        $farm = $this->isFarmMode();
+        foreach ($form['actions'] as &$section) {
+            foreach ($section['items'] ?? [] as $index => $item) {
+                if (($item['name'] ?? '') !== 'DetailTarget') {
+                    continue;
+                }
+                $section['items'][$index]['value'] = $farm ? 'controller' : 'main';
+                if (!$farm) {
+                    $section['items'][$index]['options'] = [$item['options'][0]];
+                }
+            }
+        }
+        unset($section);
         return json_encode($form, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE);
     }
 
@@ -1245,8 +1258,9 @@ PHP;
                 return;
             }
             try {
-                $this->ReadRscpDeviceOverview(false);
-                if ($this->isFarmMode() && $this->hasFarmPeer()) {
+                $farm = $this->isFarmMode();
+                $this->ReadRscpDeviceOverview(false, $farm);
+                if ($farm && $this->hasFarmPeer()) {
                     $this->ReadRscpDeviceOverview(true);
                 }
             } finally {
@@ -1290,8 +1304,9 @@ PHP;
             $key = $kind . ($farmController ? 'Farm' : ($secondDevice ? 'Zweit' : '')) . $index;
             $this->publishRscpAccessory($key, $names[$group] . ' ' . $index, $data, $secondDevice);
         }
-        return $this->containsOnlyRscpErrors($data) ? 'Das Gerät hat keine Werte für diese Datengruppe geliefert.'
-            : $names[$group] . ' per RSCP gelesen. Details stehen im Objektbaum.';
+        $endpoint = $host . ':' . $port . ' – ';
+        return $endpoint . ($this->containsOnlyRscpErrors($data) ? 'Keine Werte für diese Datengruppe geliefert.'
+            : $names[$group] . ' per RSCP gelesen. Details stehen im Objektbaum.');
     }
 
     public function ReadRscpDeviceOverview(bool $secondDevice, bool $farmController = false): string
