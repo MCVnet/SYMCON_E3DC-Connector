@@ -67,6 +67,9 @@ class E3DCConnector extends IPSModule
         $this->RegisterPropertyString('FarmRscpUser', 'local.user');
         $this->RegisterPropertyString('FarmRscpPassword', '');
         $this->RegisterPropertyString('FarmRscpKey', '');
+        $this->RegisterPropertyString('MainRscpUser', '');
+        $this->RegisterPropertyString('MainRscpPassword', '');
+        $this->RegisterPropertyString('MainRscpKey', '');
         $this->RegisterAttributeInteger('RscpSolarReadAt', 0);
         $this->RegisterTimer('RscpSolarTimer', 0, 'if (IPS_InstanceExists($_IPS["TARGET"])) { E3DCF_PollRscpSolar($_IPS["TARGET"]); }');
         $this->RegisterPropertyInteger('Interval', 15);
@@ -931,7 +934,7 @@ PHP;
         }
     }
 
-    private function rscpCredentials(): ?array
+    private function rscpCredentials(bool $mainDevice = false): ?array
     {
         if (!$this->ReadPropertyBoolean('ReadRscpSolar')) {
             return null;
@@ -939,6 +942,14 @@ PHP;
         $user = trim($this->ReadPropertyString('FarmRscpUser'));
         $password = $this->ReadPropertyString('FarmRscpPassword');
         $key = $this->ReadPropertyString('FarmRscpKey');
+        if ($mainDevice) {
+            $mainUser = trim($this->ReadPropertyString('MainRscpUser'));
+            $mainPassword = $this->ReadPropertyString('MainRscpPassword');
+            $mainKey = $this->ReadPropertyString('MainRscpKey');
+            $user = $mainUser !== '' ? $mainUser : $user;
+            $password = $mainPassword !== '' ? $mainPassword : $password;
+            $key = $mainKey !== '' ? $mainKey : $key;
+        }
         return $user !== '' && $password !== '' && $key !== '' ? [$user, $password, $key] : null;
     }
 
@@ -1020,14 +1031,13 @@ PHP;
             return [];
         }
         $port = $this->ReadPropertyInteger('DeviceRscpPort');
-        $user = trim($this->ReadPropertyString('FarmRscpUser'));
-        $password = $this->ReadPropertyString('FarmRscpPassword');
-        $key = $this->ReadPropertyString('FarmRscpKey');
-        if ($port < 1 || $port > 65535 || $user === '' || $password === '' || $key === '') {
+        $credentials = $this->rscpCredentials(!$second);
+        if ($port < 1 || $port > 65535 || $credentials === null) {
             $notes[$label] = 'RSCP-Port und Zugangsdaten prüfen.';
             $this->setGroupedValue($status, $notes[$label]);
             return [];
         }
+        [$user, $password, $key] = $credentials;
         try {
             $data = (new \E3DCConnector\FarmRscp($key))->readDevice($host, $port, $user, $password);
         } catch (RuntimeException $error) {
@@ -1245,29 +1255,30 @@ PHP;
         });
     }
 
-    public function ReadRscpDetails(bool $secondDevice, string $group, int $index): string
+    public function ReadRscpDetails(bool $secondDevice, string $group, int $index, bool $farmController = false): string
     {
-        [$client, $host, $port, $user, $password] = $this->rscpTarget($secondDevice);
+        [$client, $host, $port, $user, $password] = $this->rscpTarget($secondDevice, $farmController);
         $names = ['INFO' => 'Geräteinformationen', 'DCDC' => 'DC/DC-Wandler', 'EMS' => 'Energiemanagement', 'BAT' => 'Batterie und Batteriemodule',
             'PVI' => 'Wechselrichter', 'PM' => 'Leistungsmesser', 'WB' => 'Wallbox'];
         if (!isset($names[$group])) {
             throw new RuntimeException('Unbekannte RSCP-Datengruppe.');
         }
         $root = $this->accessoryCategory($this->InstanceID, 'CategoryRscpDetails', 'RSCP-Gerätedetails');
-        $device = $this->accessoryCategory($root, $secondDevice ? 'Device2' : 'Device1',
-            $secondDevice ? 'Zweites Farmgerät' : 'Hauptgerät');
+        $device = $this->accessoryCategory($root, $farmController ? 'FarmController' : ($secondDevice ? 'Device2' : 'Device1'),
+            $farmController ? 'Farmcontroller' : ($secondDevice ? 'Zweites Farmgerät' : 'Hauptgerät'));
         $category = $this->accessoryCategory($device, $group . $index, $names[$group] . (in_array($group, ['INFO', 'EMS'], true) ? '' : ' ' . $index));
         try {
             $data = $client->readDetails($host, $port, $user, $password, $group, $index);
         } catch (RuntimeException $error) {
-            $this->publishAccessoryValue($category, 'ReadStatus', 'Status', $error->getMessage());
-            throw $error;
+            $message = $host . ':' . $port . ' – ' . $error->getMessage();
+            $this->publishAccessoryValue($category, 'ReadStatus', 'Status', $message);
+            throw new RuntimeException($message, 0, $error);
         }
         $this->publishRscpTree($category, $data);
         $this->publishAccessoryValue($category, 'ReadStatus', 'Status',
             $this->containsOnlyRscpErrors($data) ? 'Das Gerät hat keine Messwerte für diese Datengruppe geliefert.' : 'RSCP-Antwort gelesen.');
         $this->publishAccessoryValue($category, 'LastRead', 'Letzte RSCP-Abfrage', time());
-        if ($group === 'INFO' && !$secondDevice) {
+        if ($group === 'INFO' && !$secondDevice && !$farmController) {
             foreach (['INFO_SERIAL_NUMBER' => 'Serial', 'INFO_SW_RELEASE' => 'Firmware'] as $tag => $ident) {
                 if (is_string($data[$tag] ?? null)) {
                     $this->setGroupedValue($ident, $data[$tag]);
@@ -1276,19 +1287,19 @@ PHP;
         }
         $kind = ['PVI' => 'Wechselrichter', 'PM' => 'Zaehler', 'WB' => 'Wallbox'][$group] ?? null;
         if ($kind !== null && !$this->containsOnlyRscpErrors($data)) {
-            $key = $kind . ($secondDevice ? 'Zweit' : '') . $index;
+            $key = $kind . ($farmController ? 'Farm' : ($secondDevice ? 'Zweit' : '')) . $index;
             $this->publishRscpAccessory($key, $names[$group] . ' ' . $index, $data, $secondDevice);
         }
         return $this->containsOnlyRscpErrors($data) ? 'Das Gerät hat keine Werte für diese Datengruppe geliefert.'
             : $names[$group] . ' per RSCP gelesen. Details stehen im Objektbaum.';
     }
 
-    public function ReadRscpDeviceOverview(bool $secondDevice): string
+    public function ReadRscpDeviceOverview(bool $secondDevice, bool $farmController = false): string
     {
         $results = [];
         foreach (['INFO', 'EMS', 'DCDC', 'BAT', 'PVI', 'PM', 'WB'] as $group) {
             try {
-                $results[] = $group . ' – ' . $this->ReadRscpDetails($secondDevice, $group, 0);
+                $results[] = $group . ' – ' . $this->ReadRscpDetails($secondDevice, $group, 0, $farmController);
             } catch (RuntimeException $error) {
                 $results[] = $group . ' – ' . $error->getMessage();
             }
@@ -1354,9 +1365,37 @@ PHP;
         return 'RSCP-Sperrzeit vom Gerät bestätigt.';
     }
 
-    private function rscpTarget(bool $secondDevice): array
+    public function TestRscpConnections(): string
     {
-        $credentials = $this->rscpCredentials();
+        $targets = ['Hauptgerät' => [false, false]];
+        if ($this->isFarmMode()) {
+            $targets['Farmcontroller'] = [false, true];
+            if ($this->hasFarmPeer()) {
+                $targets['Zweites Farmgerät'] = [true, false];
+            }
+        }
+        $results = [];
+        foreach ($targets as $label => [$second, $farm]) {
+            $connection = '';
+            try {
+                [$client, $host, $port, $user, $password] = $this->rscpTarget($second, $farm);
+                $connection = ' ' . $host . ':' . $port;
+                $client->testAuthentication($host, $port, $user, $password);
+                $state = 'Anmeldung erfolgreich.';
+            } catch (RuntimeException $error) {
+                $state = $error->getMessage();
+            }
+            $results[] = $label . $connection . ' – ' . $state;
+        }
+        return implode("\n", $results);
+    }
+
+    private function rscpTarget(bool $secondDevice, bool $farmController = false): array
+    {
+        if ($farmController && ($secondDevice || !$this->isFarmMode())) {
+            throw new RuntimeException('Den Farmcontroller nur im Farmbetrieb als eigenes Ziel wählen.');
+        }
+        $credentials = $this->rscpCredentials(!$secondDevice && !$farmController);
         if (!$this->ReadPropertyBoolean('Active') || $credentials === null) {
             throw new RuntimeException('Instanz und lokales RSCP aktivieren und Zugangsdaten hinterlegen.');
         }
@@ -1364,7 +1403,7 @@ PHP;
         if ($secondDevice && $host === '') {
             $host = $this->legacyPeerHost();
         }
-        $port = $this->ReadPropertyInteger('DeviceRscpPort');
+        $port = $this->ReadPropertyInteger($farmController ? 'FarmRscpPort' : 'DeviceRscpPort');
         if (!filter_var($host, FILTER_VALIDATE_IP) || $port < 1 || $port > 65535 || ($secondDevice && !$this->isFarmMode())) {
             throw new RuntimeException('RSCP-Zielgerät und Port prüfen.');
         }

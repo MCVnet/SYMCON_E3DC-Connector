@@ -254,6 +254,11 @@ final class FarmRscp
         return $result;
     }
 
+    public function testAuthentication(string $host, int $port, string $user, string $password): void
+    {
+        fclose($this->openSession($host, $port, $user, $password));
+    }
+
     public function readIdentity(string $host, int $port, string $user, string $password): array
     {
         $socket = $this->openSession($host, $port, $user, $password);
@@ -427,9 +432,20 @@ final class FarmRscp
             $credentials = self::element(2, 0x0D, $user) . self::element(3, 0x0D, $password);
             $auth = $this->exchange($socket, self::element(self::AUTH_REQUEST, self::CONTAINER, $credentials));
             $response = $auth[self::AUTH_RESPONSE] ?? null;
-            if ($response === null || $response[0] === self::ERROR || $response[1] === ''
-                || ord($response[1][0]) === 0) {
-                throw new RuntimeException('RSCP-Anmeldung wurde abgewiesen.');
+            if ($response === null) {
+                throw new RuntimeException('Der RSCP-Endpunkt lieferte keine Anmeldeantwort.');
+            }
+            if ($response[0] === self::ERROR) {
+                $errorCode = strlen($response[1]) === 4 ? unpack('V', $response[1])[1] : null;
+                throw new RuntimeException($errorCode === 2 ? 'RSCP-Anmeldung abgewiesen (Zugriff verweigert).'
+                    : 'RSCP-Anmeldung fehlgeschlagen' . ($errorCode === null ? '.' : ' (Fehlercode ' . $errorCode . ').'));
+            }
+            $accessLevel = self::decodeEnergy($response);
+            if ($accessLevel === 0) {
+                throw new RuntimeException('RSCP-Anmeldung abgewiesen (Benutzerebene 0).');
+            }
+            if ($accessLevel === null || $accessLevel < 0) {
+                throw new RuntimeException('RSCP-Endpunkt lieferte eine ungültige Benutzerebene.');
             }
 
             return $socket;
