@@ -458,11 +458,13 @@ class E3DCConnector extends IPSModule
             $status .= ' – weiteres Farmgerät fehlt';
         }
         $this->setGroupedValue('OperatingModeStatus', $status);
+        $useMainDevice = !$farm || $this->hasSeparateMainCredentials();
         $positions = ['Farm' => 10, 'FarmStorage' => 15, 'Master' => 20, 'Storage' => 25,
             'Second' => 30, 'SecondStorage' => 35, 'Wallbox' => 40, 'Daily' => 50,
             'Identity' => 60, 'Diagnostics' => 90];
         foreach (self::GROUPS as $group => [$name]) {
-            $hidden = !$farm && in_array($group, self::FARM_GROUPS, true);
+            $hidden = (!$farm && in_array($group, self::FARM_GROUPS, true))
+                || (!$useMainDevice && in_array($group, ['Master', 'Storage', 'Identity'], true));
             if (!$farm && $group === 'Master') {
                 $name = 'Einzelgerät – Leistung und Verbrauch';
             }
@@ -472,6 +474,15 @@ class E3DCConnector extends IPSModule
                 IPS_SetName($category, $name);
                 IPS_SetHidden($category, $hidden);
                 IPS_SetPosition($category, $position);
+            }
+        }
+        $details = @IPS_GetObjectIDByIdent('CategoryRscpDetails', $this->InstanceID);
+        if ($details !== false && IPS_CategoryExists($details)) {
+            foreach (['Device1' => !$useMainDevice, 'FarmController' => !$farm, 'Device2' => !$farm] as $key => $hidden) {
+                $category = @IPS_GetObjectIDByIdent($key, $details);
+                if ($category !== false && IPS_CategoryExists($category)) {
+                    IPS_SetHidden($category, $hidden);
+                }
             }
         }
     }
@@ -883,14 +894,19 @@ PHP;
                 'SGReadyValid', 'WallboxAvailable', 'OneEfficiencyValid'] as $ident) {
                 $this->setGroupedValue($ident, false);
             }
-            $live = $this->readLocalRscpDevice($host, false, $notes);
+            $farmMode = $this->isFarmMode();
+            $readMainDevice = !$farmMode || $this->hasSeparateMainCredentials();
+            $live = $readMainDevice ? $this->readLocalRscpDevice($host, false, $notes) : [];
+            if (!$readMainDevice) {
+                $this->setGroupedValue('RscpCapacityStatus', 'Im Farmbetrieb wird der Farmcontroller abgefragt.');
+            }
             if ($live !== []) {
                 $this->publishRscpLive($live);
             }
             $farmValid = false;
             $farm = [];
             $second = [];
-            if ($this->isFarmMode()) {
+            if ($farmMode) {
                 $peer = trim($this->ReadPropertyString('SecondHost'));
                 if ($peer === '') {
                     $peer = $this->legacyPeerHost();
@@ -914,15 +930,16 @@ PHP;
                 $this->setGroupedValue('LastSuccess', time());
             }
             if ($valid || $farmValid) {
-                $message = $valid ? 'Messwerte über lokales RSCP aktualisiert.'
-                    : 'Farmcontroller liefert Messwerte. Hauptgerät: ' . ($notes['RSCP Hauptgerät'] ?? 'Live-Werte unvollständig.');
+                $message = $farmValid ? 'Messwerte des Farmcontrollers per RSCP aktualisiert.'
+                    : 'Messwerte des Hauptgeräts per RSCP aktualisiert.';
+                if ($readMainDevice && !$valid) {
+                    $message .= ' Hauptgerät: ' . ($notes['RSCP Hauptgerät'] ?? 'Live-Werte unvollständig.');
+                }
                 $this->setGroupedValue('DataStatus', $message);
                 $this->SetStatus(102);
             } else {
-                $message = 'Hauptgerät: ' . ($notes['RSCP Hauptgerät'] ?? 'Keine vollständige RSCP-Live-Antwort.');
-                if (isset($notes['RSCP Farmcontroller'])) {
-                    $message .= ' Farmcontroller: ' . $notes['RSCP Farmcontroller'];
-                }
+                $source = $farmMode ? 'Farmcontroller' : 'Hauptgerät';
+                $message = $source . ': ' . ($notes['RSCP ' . $source] ?? 'Keine vollständige RSCP-Live-Antwort.');
                 if ($second !== []) {
                     $message .= ' Werte des zweiten Geräts wurden aktualisiert.';
                 }
@@ -932,6 +949,13 @@ PHP;
         } finally {
             IPS_SemaphoreLeave($lock);
         }
+    }
+
+    private function hasSeparateMainCredentials(): bool
+    {
+        return trim($this->ReadPropertyString('MainRscpUser')) !== ''
+            || $this->ReadPropertyString('MainRscpPassword') !== ''
+            || $this->ReadPropertyString('MainRscpKey') !== '';
     }
 
     private function rscpCredentials(bool $mainDevice = false): ?array
@@ -1280,6 +1304,7 @@ PHP;
         $root = $this->accessoryCategory($this->InstanceID, 'CategoryRscpDetails', 'RSCP-Gerätedetails');
         $device = $this->accessoryCategory($root, $farmController ? 'FarmController' : ($secondDevice ? 'Device2' : 'Device1'),
             $farmController ? 'Farmcontroller' : ($secondDevice ? 'Zweites Farmgerät' : 'Hauptgerät'));
+        IPS_SetHidden($device, !$farmController && !$secondDevice && $this->isFarmMode() && !$this->hasSeparateMainCredentials());
         $category = $this->accessoryCategory($device, $group . $index, $names[$group] . (in_array($group, ['INFO', 'EMS'], true) ? '' : ' ' . $index));
         try {
             $data = $client->readDetails($host, $port, $user, $password, $group, $index);
@@ -1380,10 +1405,14 @@ PHP;
         return 'RSCP-Sperrzeit vom Gerät bestätigt.';
     }
 
-    public function TestRscpConnections(): string
+    public function TestRscpConnections(bool $includeMainDevice = false): string
     {
-        $targets = ['Hauptgerät' => [false, false]];
-        if ($this->isFarmMode()) {
+        $farmMode = $this->isFarmMode();
+        $targets = [];
+        if (!$farmMode || $includeMainDevice || $this->hasSeparateMainCredentials()) {
+            $targets['Hauptgerät'] = [false, false];
+        }
+        if ($farmMode) {
             $targets['Farmcontroller'] = [false, true];
             if ($this->hasFarmPeer()) {
                 $targets['Zweites Farmgerät'] = [true, false];

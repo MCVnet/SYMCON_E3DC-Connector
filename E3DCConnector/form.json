@@ -366,6 +366,11 @@
       "onClick": "echo E3DCF_TestRscpConnections($id);"
     },
     {
+      "type": "Button",
+      "caption": "RSCP-Verbindungen inklusive Einzelgeräte-Port testen",
+      "onClick": "echo E3DCF_TestRscpConnections($id, true);"
+    },
+    {
       "type": "ExpansionPanel",
       "caption": "RSCP-Gerätedetails",
       "expanded": false,
