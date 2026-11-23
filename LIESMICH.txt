@@ -301,3 +301,10 @@ Das zweite Farmgerät besitzt eigene Zubehöreinträge, da derselbe
 Wechselrichterindex auf beiden Geräten vorkommen kann. Bei Zuordnung
 über eine ältere zweite Symcon-Instanz werden deren aktuelle
 Wechselrichterdetails verwendet.
+
+
+Die LAN-Suche speichert eine eindeutige Erkennung als „Farm“ oder
+„Einzelgerät“ und aktualisiert die offene Instanzkonfiguration. Eine
+neue Instanz beginnt mit den Einrichtungs- und Statusvariablen.
+Messvariablen werden bei Übernahme der Geräteadresse angelegt.
+Farmvariablen werden im Einzelbetrieb nicht neu angelegt.

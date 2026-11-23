@@ -31,7 +31,7 @@
         },
         {
           "type": "Label",
-          "caption": "Automatisch verwendet ein Einzelgerät oder eine Farm mit zugeordnetem zweitem Gerät. Die LAN-Suche übernimmt eindeutige Treffer. Bei mehreren unabhängigen Anlagen zuerst das gewünschte Hauptgerät auswählen."
+          "caption": "Die LAN-Suche trägt bei eindeutiger Erkennung Betriebsart und Geräteadressen ein. Die Messvariablen werden danach für die erkannte Betriebsart angelegt. Bei unklarer Zuordnung kann die Betriebsart manuell gewählt werden."
         },
         {
           "type": "ValidationTextBox",
@@ -41,7 +41,7 @@
         {
           "type": "Button",
           "caption": "Geräte im LAN suchen",
-          "onClick": "echo E3DCF_DiscoverLAN($id, $LanNetwork, $Host, $Port, $Unit, $OperatingMode);"
+          "onClick": "echo E3DCF_DiscoverLAN($id, $LanNetwork, $Host, $Port, $Unit, 'auto');"
         },
         {
           "type": "ExpansionPanel",

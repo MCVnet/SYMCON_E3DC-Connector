@@ -67,7 +67,7 @@ class E3DCOne extends IPSModule
         $this->RegisterPropertyInteger('Unit', 1);
         $this->RegisterPropertyInteger('Interval', 15);
         $this->RegisterPropertyBoolean('AutoFarmDevices', true);
-        $this->RegisterPropertyBoolean('ReadWallbox', false);
+        $this->RegisterPropertyBoolean('ReadWallbox', true);
         $this->RegisterPropertyString('AccessoryNames', '{}');
         $this->RegisterPropertyString('AccessoryOptions', '[]');
         $this->RegisterPropertyInteger('BackupReservePercent', 0);
@@ -205,7 +205,7 @@ class E3DCOne extends IPSModule
             $this->SetStatus(104);
             return;
         }
-        if (trim($this->ReadPropertyString('Host')) === '') {
+        if (!filter_var($this->ReadPropertyString('Host'), FILTER_VALIDATE_IP)) {
             $this->setGroupedValue('DataStatus', 'IP-Adresse des Hauptgeräts fehlt');
             $this->SetStatus(104);
             return;
@@ -266,9 +266,23 @@ class E3DCOne extends IPSModule
         throw new LogicException('Unbekannte Modulvariable: ' . $ident);
     }
 
+    private function shouldCreateVariable(string $ident, string $groupIdent): bool
+    {
+        if (in_array($ident, ['LanSetupStatus', 'DataStatus', 'OperatingModeStatus'], true)) {
+            return true;
+        }
+        if (!filter_var($this->ReadPropertyString('Host'), FILTER_VALIDATE_IP)) {
+            return false;
+        }
+        return $this->isFarmMode() || (!in_array($groupIdent, ['E3DCGroupFarm', 'E3DCGroupSecond'], true) && $ident !== 'DayHeatPump');
+    }
+
     private function maintainGroupedVariable(string $ident, string $name, string $profile, int $type): void
     {
         [$groupIdent, $groupName, $position] = $this->variableLocation($ident);
+        if (!$this->shouldCreateVariable($ident, $groupIdent)) {
+            return;
+        }
         $category = @IPS_GetObjectIDByIdent($groupIdent, $this->InstanceID);
         if ($category === false) {
             $category = IPS_CreateCategory();
@@ -352,7 +366,11 @@ class E3DCOne extends IPSModule
 
     private function setGroupedValue(string $ident, mixed $value): void
     {
-        SetValue($this->groupedVariableID($ident), $value);
+        $variable = $this->findGroupedVariable($ident, $this->InstanceID);
+        if ($variable === false && !$this->shouldCreateVariable($ident, $this->variableLocation($ident)[0])) {
+            return;
+        }
+        SetValue($variable !== false ? $variable : $this->groupedVariableID($ident), $value);
     }
 
     private function getGroupedValue(string $ident): mixed
@@ -377,8 +395,9 @@ class E3DCOne extends IPSModule
     private function updateOperatingLayout(): void
     {
         $farm = $this->isFarmMode();
-        $status = $farm ? 'Farm' : 'Einzelgerät';
-        if ($farm && !$this->hasFarmPeer()) {
+        $configured = filter_var($this->ReadPropertyString('Host'), FILTER_VALIDATE_IP) !== false;
+        $status = $configured ? ($farm ? 'Farm' : 'Einzelgerät') : 'Einrichtung ausstehend';
+        if ($configured && $farm && !$this->hasFarmPeer()) {
             $status .= ' – weiteres Farmgerät fehlt';
         }
         $this->setGroupedValue('OperatingModeStatus', $status);
@@ -501,7 +520,7 @@ PHP;
             'OneInstance' => $this->InstanceID,
             'OneSetupStatus' => $statusId,
             'OneMaster' => $result['master'],
-            'OperatingMode' => $mode,
+            'OperatingMode' => $result['mode'],
             'OneSecond' => $result['second'],
             'OnePort' => $result['port'],
             'OneUnit' => $result['unit']
@@ -511,6 +530,11 @@ PHP;
             return $this->getGroupedValue('LanSetupStatus');
         }
 
+        $this->UpdateFormField('OperatingMode', 'value', $result['mode']);
+        $this->UpdateFormField('Host', 'value', $result['master']);
+        if ($result['second'] !== '') {
+            $this->UpdateFormField('SecondHost', 'value', $result['second']);
+        }
         return $result['message'] . "\n\nAutomatische Übernahme gestartet. Das Ergebnis steht unter LAN-Einrichtung.";
     }
 
@@ -567,7 +591,7 @@ PHP;
                 return ['message' => 'Dieses Suchnetz muss am Symcon-Server anliegen oder einen gespeicherten, erreichbaren Farmmaster enthalten.'];
             }
             $searched[] = $prefix . '0/24';
-            $matches += $this->scanDeviceSubnet($prefix, $port, $unit, $masterIp === '');
+            $matches += $this->scanDeviceSubnet($prefix, $port, $unit, $mode !== 'standalone');
         }
         if ($matches === []) {
             return ['message' => sprintf('Kein E3/DC-Gerät im Modbus Simple Mode gefunden. Geprüft: %s (Port %d, Unit-ID %d).',
@@ -579,6 +603,12 @@ PHP;
             $lines[] = $host . ' — E3/DC ' . ($device['model'] ?: '(Modell unbekannt)') . ' — ' . $device['serial'];
         }
         $summary = implode("\n", $lines);
+        return $this->classifyDiscoveredDevices($matches, $masterIp, $mode, $port, $unit, $summary);
+    }
+
+    private function classifyDiscoveredDevices(array $matches, string $masterIp, string $mode, int $port, int $unit, string $summary): array
+    {
+        $farmMasters = array_keys(array_filter($matches, static fn (array $device): bool => $device['farmMeter']));
         if ($mode === 'standalone' || count($matches) === 1) {
             $host = $masterIp !== '' ? $masterIp : array_key_first($matches);
             if (!isset($matches[$host]) || (count($matches) > 1 && $masterIp === '')) {
@@ -587,7 +617,10 @@ PHP;
             if ($mode !== 'standalone' && $this->hasFarmPeer()) {
                 return ['message' => $summary . "\n\nDie vorhandene Farmkonfiguration bleibt erhalten."];
             }
-            return ['message' => $summary, 'master' => $host, 'second' => '', 'port' => $port, 'unit' => $unit];
+            $detectedMode = $mode !== 'standalone' && ($farmMasters !== [] || $mode === 'farm') ? 'farm' : 'standalone';
+            $caption = $detectedMode === 'farm' ? 'Farmmaster erkannt. Weiteres Farmgerät fehlt.' : 'Einzelgerät erkannt.';
+            return ['message' => $summary . "\n" . $caption, 'master' => $host, 'second' => '',
+                'mode' => $detectedMode, 'port' => $port, 'unit' => $unit];
         }
         if (count($matches) !== 2 || count(array_filter($matches,
             static fn (array $device): bool => strcasecmp($device['model'], 'one') === 0)) !== 2) {
@@ -597,11 +630,10 @@ PHP;
         if (in_array('', $serials, true) || count(array_unique($serials)) !== 2) {
             return ['message' => $summary . "\n\nDie beiden Geräte melden keine eindeutigen Seriennummern."];
         }
-        if ($masterIp === '') {
-            $farmMasters = array_keys(array_filter($matches, static fn (array $device): bool => $device['farmMeter']));
-            if (count($farmMasters) === 1) {
-                $masterIp = $farmMasters[0];
-            }
+        if (count($farmMasters) === 1) {
+            $masterIp = $farmMasters[0];
+        } elseif ($mode !== 'farm' && (!$this->hasFarmPeer() || !isset($matches[trim($this->ReadPropertyString('SecondHost'))]))) {
+            return ['message' => $summary . "\n\nZwei Geräte gefunden, aber kein eindeutiger Farmmaster. Bitte die Betriebsart manuell wählen."];
         }
         if (!isset($matches[$masterIp])) {
             return ['message' => $summary . "\n\nDer Farmmaster konnte nicht eindeutig zugeordnet werden. Bitte die Farmmaster-IP hinterlegen."];
@@ -616,6 +648,7 @@ PHP;
                 . "\nZweiter one: $secondIp – " . $matches[$secondIp]['serial'],
             'master' => $masterIp,
             'second' => $secondIp,
+            'mode' => 'farm',
             'port' => $port,
             'unit' => $unit
         ];
@@ -675,7 +708,7 @@ PHP;
                             $identity = $this->readRegisters($socket, $unit, 2, 40020, 32);
                             $matches[$host]['model'] = $this->decodeText(array_slice($identity, 0, 16));
                             $matches[$host]['serial'] = $this->decodeText(array_slice($identity, 16, 16));
-                            if ($identifyMaster && strcasecmp($matches[$host]['model'], 'one') === 0) {
+                            if ($identifyMaster) {
                                 usleep(110000);
                                 $meters = $this->readRegisters($socket, $unit, 3, 40105, 32);
                                 $matches[$host]['farmMeter'] = in_array(5, array_filter($meters,
@@ -719,6 +752,10 @@ PHP;
         if (!$this->ReadPropertyBoolean('Active')) {
             return;
         }
+        if (!filter_var($this->ReadPropertyString('Host'), FILTER_VALIDATE_IP)) {
+            $this->setGroupedValue('DataStatus', 'IP-Adresse des Hauptgeräts fehlt oder ist ungültig.');
+            return;
+        }
         $lock = 'E3DCOne.Poll.' . $this->InstanceID;
         if (!IPS_SemaphoreEnter($lock, 0)) {
             return;
@@ -756,7 +793,7 @@ PHP;
                 fclose($socket);
             }
 
-            $this->publishDaily($this->getGroupedValue('FarmPowerValid'), $registers);
+            $this->publishDaily($this->isFarmMode() && $this->getGroupedValue('FarmPowerValid'), $registers);
             $this->setGroupedValue('DataStatus', 'Messwerte aktualisiert');
             $this->SetStatus(102);
         } catch (RuntimeException $error) {
@@ -1560,6 +1597,9 @@ PHP;
         if (!$this->ReadPropertyBoolean('Active') || !$this->ReadPropertyBoolean('ReadRscpSolar')) {
             return;
         }
+        if (!filter_var($this->ReadPropertyString('Host'), FILTER_VALIDATE_IP)) {
+            return;
+        }
         $lock = 'E3DCOne.RscpSolar.' . $this->InstanceID;
         if (!IPS_SemaphoreEnter($lock, 0)) {
             return;
@@ -1696,7 +1736,7 @@ PHP;
         $state['balanceKey'] = $balanceKey;
         $powers = [];
         // PV, battery and wallbox power are published before the farm balance is checked.
-        if ($this->getGroupedValue('SecondOneValid')) {
+        if (!$single && $this->getGroupedValue('SecondOneValid')) {
             $powers = [
                 'DayPV' => $this->getGroupedValue('FarmPV'),
                 'DayBatteryCharge' => $this->getGroupedValue('FarmBatteryChargePower'),
@@ -1820,7 +1860,10 @@ PHP;
             'DayHouse' => $this->isFarmMode() ? 'Hausverbrauch ohne ' . $consumer . ' heute (kWh)' : self::DAILY['DayHouse'],
             'AdditionalConsumerValid' => 'Zusatzverbrauch aktuell',
         ] as $ident => $caption) {
-            $id = $this->groupedVariableID($ident);
+            $id = $this->findGroupedVariable($ident, $this->InstanceID);
+            if ($id === false) {
+                continue;
+            }
             if (IPS_GetName($id) !== $caption) {
                 IPS_SetName($id, $caption);
             }
