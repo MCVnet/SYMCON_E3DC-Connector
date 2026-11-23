@@ -66,7 +66,7 @@ class E3DCOne extends IPSModule
         $this->RegisterPropertyString('FarmRscpPassword', '');
         $this->RegisterPropertyString('FarmRscpKey', '');
         $this->RegisterAttributeInteger('RscpSolarReadAt', 0);
-        $this->RegisterTimer('RscpSolarTimer', 0, 'E3DCF_PollRscpSolar($_IPS["TARGET"]);');
+        $this->RegisterTimer('RscpSolarTimer', 0, 'if (IPS_InstanceExists($_IPS["TARGET"])) { E3DCF_PollRscpSolar($_IPS["TARGET"]); }');
         $this->RegisterPropertyInteger('Port', 502);
         $this->RegisterPropertyInteger('Unit', 1);
         $this->RegisterPropertyInteger('Interval', 15);
@@ -89,8 +89,8 @@ class E3DCOne extends IPSModule
         $this->RegisterPropertyInteger('ForecastSource', 0);
         $this->RegisterPropertyInteger('CapacityFallbackWh', 0);
         $this->RegisterAttributeString('DailyTotals', '{}');
-        $this->RegisterTimer('PollTimer', 0, 'E3DCF_Poll($_IPS["TARGET"]);');
-        $this->RegisterTimer('InitialPollTimer', 0, 'E3DCF_RunInitialPoll($_IPS["TARGET"]);');
+        $this->RegisterTimer('PollTimer', 0, 'if (IPS_InstanceExists($_IPS["TARGET"])) { E3DCF_Poll($_IPS["TARGET"]); }');
+        $this->RegisterTimer('InitialPollTimer', 0, 'if (IPS_InstanceExists($_IPS["TARGET"])) { E3DCF_RunInitialPoll($_IPS["TARGET"]); }');
 
         $this->maintainGroupedVariables();
     }
@@ -769,11 +769,19 @@ PHP;
 
     private function runTimerPoll(callable $poll): void
     {
-        $previous = set_error_handler(static function (int $severity, string $message, string $file, int $line) use (&$previous): bool {
+        if (!IPS_InstanceExists($this->InstanceID)) {
+            return;
+        }
+        $instanceId = $this->InstanceID;
+        $previous = set_error_handler(static function (int $severity, string $message, string $file, int $line) use (&$previous, $instanceId): bool {
             if ((error_reporting() & $severity) === 0) {
                 return false;
             }
-            if ($message === 'InstanceInterface is not available') {
+            if (in_array($message, [
+                'InstanceInterface is not available',
+                'Instanz #' . $instanceId . ' existiert nicht',
+                'Instance #' . $instanceId . ' does not exist'
+            ], true)) {
                 throw new E3DCInstanceUnavailable($message, 0, $severity, $file, $line);
             }
             return $previous !== null ? (bool) $previous($severity, $message, $file, $line) : false;
