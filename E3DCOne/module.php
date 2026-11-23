@@ -1336,8 +1336,8 @@ PHP;
             return null;
         }
         $moduleId = '{AAEF96D2-6F24-4FF9-9C9C-C7FECE2C1559}';
-        if ($peer === $this->InstanceID || !IPS_InstanceExists($peer)
-            || IPS_GetInstance($peer)['ModuleInfo']['ModuleID'] !== $moduleId) {
+        $instance = $peer !== $this->InstanceID && IPS_InstanceExists($peer) ? IPS_GetInstance($peer) : null;
+        if (($instance['ModuleInfo']['ModuleID'] ?? null) !== $moduleId) {
             $this->setGroupedValue('FarmBatteryValid', false);
             $notes['Farm-Batterie'] = 'Die Instanz des zweiten one auswählen.';
             return null;
@@ -1346,11 +1346,15 @@ PHP;
         $powerId = $this->findGroupedVariable('Battery', $peer);
         $statusId = $this->findGroupedVariable('LastSuccess', $peer);
         $detailsId = $this->findGroupedVariable('BatteryDetails', $peer);
-        $peerInterval = max(5, min(3600, IPS_GetProperty($peer, 'Interval')));
-        $maxAge = 2 * $peerInterval + 10;
-        if ($pvId <= 0 || $powerId <= 0 || $statusId <= 0
-            || IPS_GetInstance($peer)['InstanceStatus'] !== 102
-            || time() - GetValue($statusId) > $maxAge) {
+        if ($pvId <= 0 || $powerId <= 0 || $statusId <= 0 || $instance['InstanceStatus'] !== 102) {
+            $notes['Farm-Leistung'] = 'Aktuelle Leistungsdaten des zweiten one erforderlich.';
+            return null;
+        }
+        $configuration = @IPS_GetConfiguration($peer);
+        $settings = is_string($configuration) ? json_decode($configuration, true) : null;
+        $peerInterval = filter_var($settings['Interval'] ?? null, FILTER_VALIDATE_INT);
+        $maxAge = 2 * max(5, min(3600, $peerInterval === false ? 15 : $peerInterval)) + 10;
+        if (time() - GetValue($statusId) > $maxAge) {
             $this->setGroupedValue('FarmBatteryValid', false);
             $notes['Farm-Leistung'] = 'Aktuelle Leistungsdaten des zweiten one erforderlich.';
             return null;
@@ -1359,14 +1363,21 @@ PHP;
 
         $remote = [];
         if ($detailsId > 0 && time() - IPS_GetVariable($detailsId)['VariableUpdated'] <= $maxAge) {
-            $remote = json_decode(GetValue($detailsId), true) ?? [];
+            $details = GetValue($detailsId);
+            $decoded = is_string($details) ? json_decode($details, true) : null;
+            $remote = is_array($decoded) ? $decoded : [];
         }
 
         $socId = $this->findGroupedVariable('SOC', $peer);
-        if ($socId > 0) {
-            $remote = $this->batteryWithFallback($remote, IPS_GetProperty($peer, 'CapacityFallbackWh'), GetValue($socId));
+        $soc = $socId > 0 ? GetValue($socId) : null;
+        if (is_int($soc)) {
+            $capacity = filter_var($settings['CapacityFallbackWh'] ?? null, FILTER_VALIDATE_INT);
+            if ($capacity === false || $capacity <= 0) {
+                $capacity = $this->ReadPropertyInteger('SecondCapacityFallbackWh');
+            }
+            $remote = $this->batteryWithFallback($remote, $capacity, $soc);
         }
-        return [GetValue($pvId), GetValue($powerId), $socId > 0 ? GetValue($socId) : 0, $remote];
+        return [GetValue($pvId), GetValue($powerId), is_int($soc) ? $soc : -1, $remote];
     }
 
     private function readSecondOne(string $host, array &$notes): array
