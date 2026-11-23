@@ -1321,7 +1321,7 @@ PHP;
         $errors = $this->describeRscpErrors($data);
         $status = $hasMeasurements ? 'RSCP-Messwerte gelesen.' : 'Keine Messwerte für diese Datengruppe.';
         if ($errors !== []) {
-            $status .= ' ' . implode(' ', $errors);
+            $status = implode(' ', $errors) . ' ' . $status;
         }
         $this->publishAccessoryValue($category, 'ReadStatus', 'Status', $status);
         $this->publishAccessoryValue($category, 'LastRead', 'Letzte RSCP-Abfrage', time(), '~UnixTimestamp');

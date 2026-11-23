@@ -363,7 +363,7 @@
     {
       "type": "Button",
       "caption": "RSCP-Verbindungen testen",
-      "onClick": "echo E3DCF_TestRscpConnections($id);"
+      "onClick": "echo E3DCF_TestRscpConnections($id, false);"
     },
     {
       "type": "Button",
