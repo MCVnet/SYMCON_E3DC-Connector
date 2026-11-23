@@ -39,6 +39,7 @@ class E3DCOne extends IPSModule
     public function Create()
     {
         parent::Create();
+        $this->RegisterPropertyBoolean('Active', true);
         $this->RegisterPropertyString('Host', '');
         $this->RegisterPropertyInteger('Port', 502);
         $this->RegisterPropertyInteger('Unit', 1);
@@ -142,7 +143,20 @@ class E3DCOne extends IPSModule
         $this->setGroupedValue('OneEfficiencyValid', false);
         $this->setGroupedValue('FarmPowerValid', false);
         $this->setGroupedValue('SecondOneValid', false);
+        $this->setGroupedValue('FarmConsumptionValid', false);
+        $this->setGroupedValue('SGReadyValid', false);
+        $this->setGroupedValue('WallboxAvailable', false);
+        if (!$this->ReadPropertyBoolean('Active')) {
+            $daily = json_decode($this->ReadAttributeString('DailyTotals'), true) ?? [];
+            $daily['powers'] = [];
+            $this->WriteAttributeString('DailyTotals', json_encode($daily));
+            $this->setGroupedValue('DayForecastAvailable', false);
+            $this->setGroupedValue('DataStatus', 'Instanz deaktiviert');
+            $this->SetStatus(104);
+            return;
+        }
         if (trim($this->ReadPropertyString('Host')) === '') {
+            $this->setGroupedValue('DataStatus', 'Farmmaster-IP fehlt');
             $this->SetStatus(104);
             return;
         }
@@ -285,6 +299,9 @@ class E3DCOne extends IPSModule
 
     public function DiscoverLAN(string $network, string $master, int $port, int $unit): string
     {
+        if (!$this->ReadPropertyBoolean('Active')) {
+            return 'Instanz ist deaktiviert. Für die LAN-Suche zuerst aktivieren.';
+        }
         $result = $this->findOneDevices($network, $master, $port, $unit);
         if (!isset($result['second'])) {
             return $result['message'];
@@ -494,6 +511,9 @@ PHP;
 
     public function Poll(): void
     {
+        if (!$this->ReadPropertyBoolean('Active')) {
+            return;
+        }
         $lock = 'E3DCOne.Poll.' . $this->InstanceID;
         if (!IPS_SemaphoreEnter($lock, 0)) {
             return;

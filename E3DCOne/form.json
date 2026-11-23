@@ -1,6 +1,11 @@
 {
   "elements": [
     {
+      "type": "CheckBox",
+      "name": "Active",
+      "caption": "Instanz aktiv"
+    },
+    {
       "type": "ValidationTextBox",
       "name": "Host",
       "caption": "IP-Adresse des Farmmasters"
@@ -103,7 +108,7 @@
     {
       "code": 104,
       "icon": "inactive",
-      "caption": "IP-Adresse fehlt"
+      "caption": "Instanz deaktiviert oder Farmmaster-IP fehlt"
     },
     {
       "code": 201,
