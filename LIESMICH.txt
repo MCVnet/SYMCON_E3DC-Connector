@@ -1,4 +1,4 @@
-E3DC Farm 0.8.7 für IP-Symcon 9.0
+E3DC Farm 0.9.0 für IP-Symcon 9.0
 
 Installation
 1. Auf dem Rechner, auf dem der IP-Symcon-Dienst läuft, den Ordner
@@ -7,11 +7,11 @@ Installation
    Symcon-Skript: echo IPS_GetKernelDir();
    Die Bibliothek liegt dann unter modules/E3DCFarm/library.json.
 2. IP-Symcon-Dienst neu starten und eine Instanz
-   „E3/DC one (Farm)“ anlegen. Bei einem Update die vorhandene
+   „E3/DC Hauskraftwerk“ anlegen. Bei einem Update die vorhandene
    Farmmaster-Instanz weiterverwenden.
-3. Auf beiden Geräten Modbus/TCP im E3/DC Simple Mode für den
-   Zugriff aus dem lokalen Netzwerk aktivieren. In der Instanz beide
-   IP-Adressen, den gemeinsamen Port und die Unit-ID eintragen.
+3. Auf den Geräten Modbus/TCP im E3/DC Simple Mode für den
+   Zugriff aus dem lokalen Netzwerk aktivieren. In der Instanz die IP-Adresse und bei
+   einer Zweierfarm die zweite Adresse eintragen.
    Voreinstellungen: Port 502, Unit-ID 1, Abfrage alle 15 Sekunden.
 4. Am Farmmaster „Wallbox-Slots prüfen“ aktivieren. Änderungen
    übernehmen, dann „Jetzt auslesen“ wählen. Unter „Datenstatus“
@@ -167,7 +167,7 @@ erhalten. Die deaktivierte Zeit wird beim Einschalten nicht
 nachträglich in Tages-kWh umgerechnet.
 
 Ersteinrichtung mit LAN-Suche
-In „Netzwerk und Verbindung“ auf „E3/DC one suchen und einrichten“
+In „Netzwerk und Verbindung“ auf „E3/DC-Geräte suchen und einrichten“
 klicken. Bei leeren Adressfeldern sucht der Symcon-Server in seinen
 aktiven lokalen IPv4-/24-Netzen. Bei exakt zwei eindeutig erkannten
 one und einem eindeutigen Farmmaster werden beide Adressen gespeichert.
@@ -214,3 +214,13 @@ Unter „Tageswerte und Prognose“ zeigt „RSCP-Tagessummen (Wh)“
 die vom Farmcontroller gelieferten Energiefelder für den Abgleich
 mit dem E3/DC-Portal. Die Solarproduktion verwendet DB_DC_POWER.
 Dieser Wert kann von der Solarproduktion im Portal abweichen.
+
+
+Kompatibilität vor Version 1.0
+Die LAN-Suche erkennt E3/DC-Geräte anhand ihrer Modbus-Signatur.
+Bei einem Einzelgerät genügt die IP des Hauptgeräts für die Live-Abfrage.
+Die Farm-Zusammenfassung unterstützt derzeit bis zu zwei Geräte.
+Automatisch zugeordnet wird das bestehende one-Farmpaar. Bei anderen
+Kombinationen wird die Liste für die manuelle Zuordnung angezeigt.
+Verfügbare Speicher-, Zähler- und Wallbox-Daten hängen von Modell und
+Firmware ab. Weitere Modelle müssen mit realen Geräten geprüft werden.

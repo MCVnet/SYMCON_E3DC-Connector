@@ -328,8 +328,8 @@ class E3DCOne extends IPSModule
         if (!$this->ReadPropertyBoolean('Active')) {
             return 'Instanz ist deaktiviert. Für die LAN-Suche zuerst aktivieren.';
         }
-        $result = $this->findOneDevices($network, $master, $port, $unit);
-        if (!isset($result['second'])) {
+        $result = $this->findDevices($network, $master, $port, $unit);
+        if (!isset($result['master'])) {
             return $result['message'];
         }
         $statusId = $this->groupedVariableID('LanSetupStatus');
@@ -356,7 +356,7 @@ if (!IPS_ApplyChanges($id)) {
     SetValue($statusId, 'IP-Adressen konnten nicht übernommen werden.');
     return;
 }
-SetValue($statusId, 'IP-Adressen übernommen: ' . $settings['Host'] . ' und ' . $settings['SecondHost']);
+SetValue($statusId, 'IP-Adressen übernommen: ' . implode(' und ', array_filter([$settings['Host'], $settings['SecondHost']])));
 E3DCF_Poll($id);
 PHP;
         $started = IPS_RunScriptTextEx($script, [
@@ -381,7 +381,7 @@ PHP;
             JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR);
     }
 
-    private function findOneDevices(string $network, string $master, int $port, int $unit): array
+    private function findDevices(string $network, string $master, int $port, int $unit): array
     {
         $savedMaster = trim($this->ReadPropertyString('Host'));
         $network = trim($network);
@@ -428,20 +428,30 @@ PHP;
                 return ['message' => 'Dieses Suchnetz muss am Symcon-Server anliegen oder einen gespeicherten, erreichbaren Farmmaster enthalten.'];
             }
             $searched[] = $prefix . '0/24';
-            $matches += $this->scanOneSubnet($prefix, $port, $unit, $masterIp === '');
+            $matches += $this->scanDeviceSubnet($prefix, $port, $unit, $masterIp === '');
         }
         if ($matches === []) {
-            return ['message' => sprintf('Kein E3/DC one gefunden. Geprüft: %s (Port %d, Unit-ID %d).',
+            return ['message' => sprintf('Kein E3/DC-Gerät im Modbus Simple Mode gefunden. Geprüft: %s (Port %d, Unit-ID %d).',
                 implode(', ', $searched), $port, $unit)];
         }
 
         $lines = [];
         foreach ($matches as $host => $device) {
-            $lines[] = $host . ' — E3/DC one — ' . $device['serial'];
+            $lines[] = $host . ' — E3/DC ' . ($device['model'] ?: '(Modell unbekannt)') . ' — ' . $device['serial'];
         }
         $summary = implode("\n", $lines);
-        if (count($matches) !== 2) {
-            return ['message' => $summary . "\n\nFür die automatische Zuordnung müssen genau zwei one gefunden werden."];
+        if (count($matches) === 1) {
+            $host = array_key_first($matches);
+            if (($masterIp !== '' && $masterIp !== $host)
+                || trim($this->ReadPropertyString('SecondHost')) !== ''
+                || $this->ReadPropertyInteger('SecondOne') !== 0) {
+                return ['message' => $summary . "\n\nDie vorhandene Gerätekonfiguration bleibt erhalten."];
+            }
+            return ['message' => $summary, 'master' => $host, 'second' => '', 'port' => $port, 'unit' => $unit];
+        }
+        if (count($matches) !== 2 || count(array_filter($matches,
+            static fn (array $device): bool => strcasecmp($device['model'], 'one') === 0)) !== 2) {
+            return ['message' => $summary . "\n\nBitte Hauptgerät und gegebenenfalls das zweite Farmgerät anhand der Treffer eintragen."];
         }
         $serials = array_column($matches, 'serial');
         if (in_array('', $serials, true) || count(array_unique($serials)) !== 2) {
@@ -486,7 +496,7 @@ PHP;
         return array_keys($prefixes);
     }
 
-    private function scanOneSubnet(string $prefix, int $port, int $unit, bool $identifyMaster): array
+    private function scanDeviceSubnet(string $prefix, int $port, int $unit, bool $identifyMaster): array
     {
         $matches = [];
         foreach (array_chunk(range(1, 254), 24) as $batch) {
@@ -520,18 +530,16 @@ PHP;
                             if ($this->readRegisters($socket, $unit, 1, 40001, 1)[0] !== 0xE3DC) {
                                 continue;
                             }
+                            $matches[$host] = ['model' => '', 'serial' => '', 'farmMeter' => false];
                             usleep(110000);
                             $identity = $this->readRegisters($socket, $unit, 2, 40020, 32);
-                            $model = $this->decodeText(array_slice($identity, 0, 16));
-                            if (strcasecmp($model, 'one') === 0) {
-                                $serial = $this->decodeText(array_slice($identity, 16, 16));
-                                $matches[$host] = ['serial' => $serial, 'farmMeter' => false];
-                                if ($identifyMaster) {
-                                    usleep(110000);
-                                    $meters = $this->readRegisters($socket, $unit, 3, 40105, 32);
-                                    $matches[$host]['farmMeter'] = in_array(5, array_filter($meters,
-                                        static fn (int $index): bool => $index % 4 === 0, ARRAY_FILTER_USE_KEY), true);
-                                }
+                            $matches[$host]['model'] = $this->decodeText(array_slice($identity, 0, 16));
+                            $matches[$host]['serial'] = $this->decodeText(array_slice($identity, 16, 16));
+                            if ($identifyMaster && strcasecmp($matches[$host]['model'], 'one') === 0) {
+                                usleep(110000);
+                                $meters = $this->readRegisters($socket, $unit, 3, 40105, 32);
+                                $matches[$host]['farmMeter'] = in_array(5, array_filter($meters,
+                                    static fn (int $index): bool => $index % 4 === 0, ARRAY_FILTER_USE_KEY), true);
                             }
                         } catch (RuntimeException $error) {
                             // The port can be open on devices that do not speak E3/DC Modbus.

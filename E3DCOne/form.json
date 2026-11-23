@@ -11,22 +11,22 @@
       "items": [
         {
           "type": "Label",
-          "caption": "Für die Ersteinrichtung die LAN-Suche starten. Symcon erkennt das lokale Netz und speichert zwei eindeutig zugeordnete Geräte automatisch."
+          "caption": "Für die Ersteinrichtung die LAN-Suche starten. Symcon sucht im lokalen Netz nach E3/DC-Geräten mit Modbus Simple Mode. Ein einzelnes Gerät oder ein eindeutig erkanntes one-Farmpaar wird automatisch eingerichtet."
         },
         {
           "type": "Button",
-          "caption": "E3/DC one suchen und einrichten",
+          "caption": "E3/DC-Geräte suchen und einrichten",
           "onClick": "echo E3DCF_DiscoverLAN($id, $LanNetwork, $Host, $Port, $Unit);"
         },
         {
           "type": "ValidationTextBox",
           "name": "Host",
-          "caption": "IP-Adresse des Farmmasters"
+          "caption": "IP-Adresse des Hauptgeräts oder Farmmasters"
         },
         {
           "type": "ValidationTextBox",
           "name": "SecondHost",
-          "caption": "IP-Adresse des zweiten one"
+          "caption": "IP-Adresse des zweiten Farmgeräts (optional)"
         },
         {
           "type": "ValidationTextBox",
