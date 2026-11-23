@@ -145,9 +145,6 @@ class E3DCOne extends IPSModule
         if (!filter_var($address, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
             return 'Das LAN-Suchnetz muss eine IPv4-Adresse oder ein IPv4-/24-Netz sein. Eingegeben: ' . $network;
         }
-        if (!preg_match('/^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)/', $address)) {
-            return 'Die LAN-Suche braucht eine private IPv4-Adresse. Eingegeben: ' . $address;
-        }
         if ($port === 0) {
             $port = $this->ReadPropertyInteger('Port');
             $unit = $this->ReadPropertyInteger('Unit');
@@ -159,6 +156,15 @@ class E3DCOne extends IPSModule
             return 'Modbus Unit-ID zwischen 0 und 255 eingeben.';
         }
         $prefix = substr($address, 0, strrpos($address, '.') + 1);
+        if (!preg_match('/^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)/', $address)) {
+            $savedMaster = trim($this->ReadPropertyString('Host'));
+            if ((int) explode('.', $address, 2)[0] < 1 || (int) explode('.', $address, 2)[0] >= 224
+                || !filter_var($savedMaster, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)
+                || !str_starts_with($savedMaster, $prefix)
+                || !$this->verifyMasterForDiscovery($savedMaster, $port, $unit)) {
+                return 'Für dieses Netz zuerst die Farmmaster-IP im selben /24 speichern. Der Farmmaster muss per E3/DC Modbus erreichbar sein.';
+            }
+        }
         $matches = [];
         foreach (array_chunk(range(1, 254), 24) as $batch) {
             $pending = [];
@@ -216,6 +222,22 @@ class E3DCOne extends IPSModule
                 $prefix, $port, $unit);
         }
         return implode("\n", $matches) . "\n\nDie IP-Adressen in die Felder für Farmmaster und zweiten one eintragen.";
+    }
+
+    private function verifyMasterForDiscovery(string $host, int $port, int $unit): bool
+    {
+        $socket = @stream_socket_client('tcp://' . $host . ':' . $port, $errorCode, $errorText, 1.0);
+        if ($socket === false) {
+            return false;
+        }
+        try {
+            stream_set_timeout($socket, 1);
+            return $this->readRegisters($socket, $unit, 1, 40001, 1)[0] === 0xE3DC;
+        } catch (RuntimeException $error) {
+            return false;
+        } finally {
+            fclose($socket);
+        }
     }
 
     public function Poll(): void

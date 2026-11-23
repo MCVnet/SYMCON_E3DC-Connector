@@ -1,12 +1,12 @@
 {
   "id": "{03DA20C7-DC53-43C7-89F7-BCED0AE4BCC1}",
   "name": "E3DC Farm",
-  "author": "E3DC Farm",
+  "author": "Matthias Vogel",
   "url": "",
   "compatibility": {
     "version": "9.0"
   },
-  "version": "0.7.1",
-  "build": 8,
+  "version": "0.7.2",
+  "build": 9,
   "date": 0
 }
