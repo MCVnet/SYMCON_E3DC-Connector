@@ -197,7 +197,7 @@ class E3DCOne extends IPSModule
         $this->publishAccessories([]);
         $this->publishRscpEnergy([]);
         if (!$this->ReadPropertyBoolean('Active')) {
-            $daily = json_decode($this->ReadAttributeString('DailyTotals'), true) ?? [];
+            $daily = $this->decodeJsonArray(@$this->ReadAttributeString('DailyTotals')) ?? [];
             $daily['powers'] = [];
             $this->WriteAttributeString('DailyTotals', json_encode($daily));
             $this->setGroupedValue('DayForecastAvailable', false);
@@ -402,7 +402,11 @@ class E3DCOne extends IPSModule
 
     private function publishExternalSystems(): void
     {
-        $rows = json_decode($this->ReadPropertyString('ExternalSystems'), true);
+        $configuration = @$this->ReadPropertyString('ExternalSystems');
+        if (!is_string($configuration)) {
+            return;
+        }
+        $rows = $this->decodeJsonArray($configuration);
         $root = @IPS_GetObjectIDByIdent('CategoryExternalSystems', $this->InstanceID);
         if (!is_array($rows) || $rows === []) {
             if ($root !== false) {
@@ -1088,7 +1092,7 @@ PHP;
     {
         $form = json_decode(file_get_contents(__DIR__ . '/form.json'), true, 512, JSON_THROW_ON_ERROR);
         $root = @IPS_GetObjectIDByIdent('CategoryAccessories', $this->InstanceID);
-        $rows = $this->accessorySettings();
+        $rows = $this->accessorySettings() ?? [];
         foreach ($root !== false && IPS_CategoryExists($root) ? IPS_GetChildrenIDs($root) : [] as $category) {
             if (!IPS_CategoryExists($category)) {
                 continue;
@@ -1115,10 +1119,20 @@ PHP;
         return json_encode($form, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE);
     }
 
-    private function accessorySettings(): array
+    private function decodeJsonArray(mixed $value): ?array
     {
+        $decoded = is_string($value) ? json_decode($value, true) : null;
+        return is_array($decoded) ? $decoded : null;
+    }
+
+    private function accessorySettings(): ?array
+    {
+        $configuration = @$this->ReadPropertyString('AccessoryOptions');
+        if (!is_string($configuration)) {
+            return null;
+        }
         $settings = [];
-        foreach (json_decode($this->ReadPropertyString('AccessoryOptions'), true) ?? [] as $row) {
+        foreach ($this->decodeJsonArray($configuration) ?? [] as $row) {
             if (!is_array($row) || !is_string($row['Key'] ?? null) || trim($row['Key']) === '') {
                 continue;
             }
@@ -1139,15 +1153,15 @@ PHP;
         return $name !== '' ? $name : $default;
     }
 
-    private function accessoryLegacyNames(): array
+    private function accessoryLegacyNames(): ?array
     {
-        $names = json_decode($this->ReadPropertyString('AccessoryNames'), true);
-        return is_array($names) ? $names : [];
+        $configuration = @$this->ReadPropertyString('AccessoryNames');
+        return is_string($configuration) ? ($this->decodeJsonArray($configuration) ?? []) : null;
     }
 
     private function additionalConsumerName(int $index, array $settings, array $legacyNames): string
     {
-        $legacy = trim($this->ReadPropertyString('AdditionalConsumerName'));
+        $legacy = trim((string) @$this->ReadPropertyString('AdditionalConsumerName'));
         return $this->accessoryName('Zaehler' . $index, $settings, $legacyNames, $legacy !== '' ? $legacy : 'Zusatzverbrauch');
     }
 
@@ -1157,7 +1171,7 @@ PHP;
         $root = @IPS_GetObjectIDByIdent($ident, $this->InstanceID);
         $names = $this->accessoryLegacyNames();
         $settings = $this->accessorySettings();
-        if ($root === false && array_filter($groups) === []) {
+        if ($settings === null || $names === null || ($root === false && array_filter($groups) === [])) {
             return;
         }
         $root = $this->accessoryCategory($this->InstanceID, $ident, 'Zubehör und Messpunkte');
@@ -1624,7 +1638,11 @@ PHP;
 
     private function publishSolarFallback(): void
     {
-        $state = json_decode($this->ReadAttributeString('DailyTotals'), true) ?? [];
+        $configuration = @$this->ReadAttributeString('DailyTotals');
+        if (!is_string($configuration)) {
+            return;
+        }
+        $state = $this->decodeJsonArray($configuration) ?? [];
         $estimate = ($state['midnight'] ?? 0) === strtotime('today')
             ? round($state['totals']['DayPV'] ?? 0.0, 3) : 0.0;
         $this->setGroupedValue('DayPVEstimate', $estimate);
@@ -1649,7 +1667,11 @@ PHP;
 
         $now = time();
         $midnight = strtotime('today', $now);
-        $state = json_decode($this->ReadAttributeString('DailyTotals'), true) ?? [];
+        $configuration = @$this->ReadAttributeString('DailyTotals');
+        if (!is_string($configuration)) {
+            return;
+        }
+        $state = $this->decodeJsonArray($configuration) ?? [];
         $topology = $single ? 'single' : 'farm';
         if (($state['topology'] ?? 'farm') !== $topology) {
             $state = [];
@@ -1785,7 +1807,12 @@ PHP;
 
     private function updateAdditionalConsumer(bool $visible, int $index = -1): void
     {
-        $consumer = $this->additionalConsumerName($index, $this->accessorySettings(), $this->accessoryLegacyNames());
+        $settings = $this->accessorySettings();
+        $names = $this->accessoryLegacyNames();
+        if ($settings === null || $names === null) {
+            return;
+        }
+        $consumer = $this->additionalConsumerName($index, $settings, $names);
         foreach ([
             'HeatPumpConsumption' => $consumer . ' (W)',
             'FarmHouseConsumption' => 'Hausverbrauch ohne ' . $consumer . ' (W)',
