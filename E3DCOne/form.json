@@ -83,7 +83,8 @@
       "type": "Button",
       "caption": "E3/DC one suchen und einrichten",
       "onClick": [
-        "$result = E3DCF_DiscoverLAN($id, $LanNetwork, $Host, $Port, $Unit);",
+        "$result = json_decode(E3DCF_DiscoverLANSetup($id, $LanNetwork, $Host, $Port, $Unit), true);",
+        "if (!is_array($result) || !isset($result[\"message\"])) { echo \"Die LAN-Suche hat keine lesbare Antwort geliefert.\"; return; }",
         "if (!isset($result[\"second\"])) { echo $result[\"message\"]; return; }",
         "IPS_SetProperty($id, \"Host\", $result[\"master\"]);",
         "IPS_SetProperty($id, \"SecondHost\", $result[\"second\"]);",

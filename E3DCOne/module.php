@@ -125,7 +125,18 @@ class E3DCOne extends IPSModule
         $this->SetTimerInterval('PollTimer', max(5, min(3600, $this->ReadPropertyInteger('Interval'))) * 1000);
     }
 
-    public function DiscoverLAN(string $network, string $master, int $port, int $unit): array
+    public function DiscoverLAN(string $network, string $master, int $port, int $unit): string
+    {
+        return $this->findOneDevices($network, $master, $port, $unit)['message'];
+    }
+
+    public function DiscoverLANSetup(string $network, string $master, int $port, int $unit): string
+    {
+        return json_encode($this->findOneDevices($network, $master, $port, $unit),
+            JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR);
+    }
+
+    private function findOneDevices(string $network, string $master, int $port, int $unit): array
     {
         $savedMaster = trim($this->ReadPropertyString('Host'));
         $network = trim($network);

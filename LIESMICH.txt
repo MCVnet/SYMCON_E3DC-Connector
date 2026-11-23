@@ -1,4 +1,4 @@
-E3DC Farm 0.7.3 für IP-Symcon 9.0
+E3DC Farm 0.7.4 für IP-Symcon 9.0
 
 Installation
 1. Auf dem Rechner, auf dem der IP-Symcon-Dienst läuft, den Ordner
