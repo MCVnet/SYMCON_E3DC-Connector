@@ -1,4 +1,4 @@
-E3DC Farm 0.7.8 für IP-Symcon 9.0
+E3DC Farm 0.8.0 für IP-Symcon 9.0
 
 Installation
 1. Auf dem Rechner, auf dem der IP-Symcon-Dienst läuft, den Ordner
@@ -147,8 +147,10 @@ Referenz: https://github.com/torbennehmer/hacs-e3dc/tree/main/custom_components/
 Gruppierung im Objektbaum
 Unter jeder Instanz werden Farm live, Batterie und Speicher, Wallbox,
 Tageswerte und Prognose, Farmmaster, Zweiter one und Diagnose und
-Status angelegt. Die Einträge darin sind Links auf die Modulvariablen,
-damit bestehende Variablen-IDs, Archive und Ident-Lookups erhalten bleiben.
+Status angelegt. Die Variablen liegen direkt in den Kategorien. Beim Update werden
+bestehende Variablen mit ihren IDs verschoben. Alte vom Modul
+erstellte Kategorielinks werden ersetzt. Eigene Skripte mit einer
+Ident-Suche direkt unter der Instanz müssen die Kategorie angeben.
 
 Autarkie und Eigenverbrauch laut one
 Register 40082 enthält die Autarkie im oberen Byte und den

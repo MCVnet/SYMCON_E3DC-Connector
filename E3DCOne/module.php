@@ -56,90 +56,92 @@ class E3DCOne extends IPSModule
         $this->RegisterAttributeString('DailyTotals', '{}');
         $this->RegisterTimer('PollTimer', 0, 'E3DCF_Poll($_IPS["TARGET"]);');
 
-        $position = 0;
+        $this->maintainGroupedVariables();
+    }
+
+    private function maintainGroupedVariables(): void
+    {
         foreach (self::POWER as $ident => $label) {
-            $this->RegisterVariableInteger($ident, $label, '', ++$position);
+            $this->maintainGroupedVariable($ident, $label, '', VARIABLETYPE_INTEGER);
         }
-        $this->RegisterVariableInteger('SOC', 'Batterieladezustand (%)', '', 10);
-        $this->RegisterVariableInteger('EMS', 'EMS-Status (Rohwert)', '', 11);
-        $this->RegisterVariableString('Wallboxes', 'Wallbox-Erkennung', '', 12);
-        $this->RegisterVariableInteger('LastSuccess', 'Letzte erfolgreiche Abfrage', '~UnixTimestamp', 13);
-        $this->RegisterVariableString('DataStatus', 'Datenstatus', '', 14);
-        $this->RegisterVariableString('Manufacturer', 'Hersteller', '', 15);
-        $this->RegisterVariableString('Model', 'Modell', '', 16);
-        $this->RegisterVariableString('Serial', 'Seriennummer', '', 17);
-        $this->RegisterVariableString('Firmware', 'Firmware-Release', '', 18);
-        $this->RegisterVariableString('ModbusVersion', 'Modbus-Firmware-Version', '', 19);
-        $this->RegisterVariableInteger('RegisterCount', 'Gemeldete Registeranzahl', '', 20);
-        $this->RegisterVariableInteger('Emergency', 'Notstromstatus (Rohwert)', '', 21);
-        $this->RegisterVariableString('EfficiencyRaw', 'Autarkie und Eigenverbrauch (Register 40082)', '', 22);
-        $this->RegisterVariableString('EMSFlags', 'EMS-Status (Details)', '', 23);
-        $this->RegisterVariableInteger('FarmConsumption', 'Farm-Gesamtverbrauch (W)', '', 31);
-        $this->RegisterVariableInteger('HeatPumpConsumption', 'Wärmepumpe (W)', '', 32);
-        $this->RegisterVariableInteger('FarmHouseConsumption', 'Hausverbrauch ohne Wärmepumpe (W)', '', 33);
-        $this->RegisterVariableBoolean('FarmConsumptionValid', 'Farm-Verbrauchswerte aktuell', '', 34);
-        $this->RegisterVariableFloat('FarmBatterySOC', 'Farm-Batterieladezustand (%)', '', 35);
-        $this->RegisterVariableInteger('FarmBatteryPower', 'Farm-Batterieleistung (W)', '', 36);
-        $this->RegisterVariableBoolean('FarmBatteryValid', 'Farm-Batteriewerte aktuell', '', 37);
-        $this->RegisterVariableFloat('BatteryCapacity', 'Speicherkapazität des one (kWh)', '', 38);
-        $this->RegisterVariableFloat('BatteryEnergy', 'Verbleibende Speicherenergie des one (kWh)', '', 39);
-        $this->RegisterVariableBoolean('BatteryEnergyValid', 'Speicherenergie des one aktuell', '', 40);
-        $this->RegisterVariableFloat('FarmBatteryCapacity', 'Farm-Speicherkapazität (kWh)', '', 41);
-        $this->RegisterVariableFloat('FarmBatteryEnergy', 'Verbleibende Farm-Speicherenergie (kWh)', '', 42);
-        $this->RegisterVariableInteger('FarmPV', 'Farm-PV-Leistung (W)', '', 43);
-        $this->RegisterVariableInteger('FarmGrid', 'Farm-Netzleistung (berechnet, W)', '', 44);
-        $this->RegisterVariableInteger('FarmGridImport', 'Farm-Netzbezug (berechnet, W)', '', 45);
-        $this->RegisterVariableInteger('FarmGridExport', 'Farm-Einspeisung (berechnet, W)', '', 46);
-        $this->RegisterVariableFloat('FarmAutarky', 'Farm-Momentanautarkie (berechnet, %)', '', 47);
-        $this->RegisterVariableInteger('FarmWallboxPower', 'Farm-Wallbox-Leistung (W)', '', 48);
-        $this->RegisterVariableBoolean('FarmPowerValid', 'Farm-Leistungswerte aktuell', '', 49);
-        $this->RegisterVariableFloat('DayForecast', 'Solarprognose heute (kWh)', '', 50);
-        $this->RegisterVariableBoolean('DayForecastAvailable', 'Solarprognose verfügbar', '', 51);
-        $this->RegisterVariableInteger('DayStart', 'Tageserfassung seit', '~UnixTimestamp', 52);
-        $this->RegisterVariableInteger('SecondPV', 'Zweiter one PV-Leistung (W)', '', 62);
-        $this->RegisterVariableInteger('SecondBattery', 'Zweiter one Batterieleistung (W)', '', 63);
-        $this->RegisterVariableInteger('SecondSOC', 'Zweiter one Batterieladezustand (%)', '', 64);
-        $this->RegisterVariableFloat('SecondCapacity', 'Zweiter one Speicherkapazität (kWh)', '', 65);
-        $this->RegisterVariableBoolean('SecondOneValid', 'Zweiter one erreichbar', '', 66);
-        $this->RegisterVariableString('LanSetupStatus', 'LAN-Einrichtung', '', 67);
-        $this->RegisterVariableInteger('BatteryChargePower', 'Ladeleistung des one (W)', '', 68);
-        $this->RegisterVariableInteger('BatteryDischargePower', 'Entladeleistung des one (W)', '', 69);
-        $this->RegisterVariableInteger('GridImport', 'Netzbezug laut one (W)', '', 70);
-        $this->RegisterVariableInteger('GridExport', 'Netzeinspeisung laut one (W)', '', 71);
-        $this->RegisterVariableInteger('FarmBatteryChargePower', 'Farm-Batterieladeleistung (W)', '', 72);
-        $this->RegisterVariableInteger('FarmBatteryDischargePower', 'Farm-Batterieentladeleistung (W)', '', 73);
-        $this->RegisterVariableInteger('SGReadyState', 'SG Ready (Statuscode)', '', 74);
-        $this->RegisterVariableBoolean('SGReadyValid', 'SG-Ready-Status aktuell', '', 75);
-        $this->RegisterVariableBoolean('WallboxAvailable', 'Wallbox verfügbar', '', 76);
-        $this->RegisterVariableBoolean('WallboxSolarMode', 'Wallbox im Solarbetrieb', '', 77);
-        $this->RegisterVariableBoolean('WallboxChargeAllowed', 'Wallbox-Laden freigegeben', '', 78);
-        $this->RegisterVariableBoolean('WallboxCharging', 'Wallbox lädt', '', 79);
-        $this->RegisterVariableBoolean('WallboxVehicleConnected', 'Fahrzeug angeschlossen', '', 80);
-        $this->RegisterVariableInteger('WallboxPhaseMode', 'Wallbox-Phasenmodus', '', 81);
-        $this->RegisterVariableString('EmergencyState', 'Notstromstatus', '', 82);
-        $this->RegisterVariableInteger('OneAutarky', 'Autarkie laut one (%)', '', 83);
-        $this->RegisterVariableInteger('OneSelfConsumption', 'Eigenverbrauch laut one (%)', '', 84);
-        $this->RegisterVariableBoolean('OneEfficiencyValid', 'Autarkie und Eigenverbrauch aktuell', '', 85);
-        $dayPosition = 53;
+        $this->maintainGroupedVariable('SOC', 'Batterieladezustand (%)', '', VARIABLETYPE_INTEGER);
+        $this->maintainGroupedVariable('EMS', 'EMS-Status (Rohwert)', '', VARIABLETYPE_INTEGER);
+        $this->maintainGroupedVariable('Wallboxes', 'Wallbox-Erkennung', '', VARIABLETYPE_STRING);
+        $this->maintainGroupedVariable('LastSuccess', 'Letzte erfolgreiche Abfrage', '~UnixTimestamp', VARIABLETYPE_INTEGER);
+        $this->maintainGroupedVariable('DataStatus', 'Datenstatus', '', VARIABLETYPE_STRING);
+        $this->maintainGroupedVariable('Manufacturer', 'Hersteller', '', VARIABLETYPE_STRING);
+        $this->maintainGroupedVariable('Model', 'Modell', '', VARIABLETYPE_STRING);
+        $this->maintainGroupedVariable('Serial', 'Seriennummer', '', VARIABLETYPE_STRING);
+        $this->maintainGroupedVariable('Firmware', 'Firmware-Release', '', VARIABLETYPE_STRING);
+        $this->maintainGroupedVariable('ModbusVersion', 'Modbus-Firmware-Version', '', VARIABLETYPE_STRING);
+        $this->maintainGroupedVariable('RegisterCount', 'Gemeldete Registeranzahl', '', VARIABLETYPE_INTEGER);
+        $this->maintainGroupedVariable('Emergency', 'Notstromstatus (Rohwert)', '', VARIABLETYPE_INTEGER);
+        $this->maintainGroupedVariable('EfficiencyRaw', 'Autarkie und Eigenverbrauch (Register 40082)', '', VARIABLETYPE_STRING);
+        $this->maintainGroupedVariable('EMSFlags', 'EMS-Status (Details)', '', VARIABLETYPE_STRING);
+        $this->maintainGroupedVariable('FarmConsumption', 'Farm-Gesamtverbrauch (W)', '', VARIABLETYPE_INTEGER);
+        $this->maintainGroupedVariable('HeatPumpConsumption', 'Wärmepumpe (W)', '', VARIABLETYPE_INTEGER);
+        $this->maintainGroupedVariable('FarmHouseConsumption', 'Hausverbrauch ohne Wärmepumpe (W)', '', VARIABLETYPE_INTEGER);
+        $this->maintainGroupedVariable('FarmConsumptionValid', 'Farm-Verbrauchswerte aktuell', '', VARIABLETYPE_BOOLEAN);
+        $this->maintainGroupedVariable('FarmBatterySOC', 'Farm-Batterieladezustand (%)', '', VARIABLETYPE_FLOAT);
+        $this->maintainGroupedVariable('FarmBatteryPower', 'Farm-Batterieleistung (W)', '', VARIABLETYPE_INTEGER);
+        $this->maintainGroupedVariable('FarmBatteryValid', 'Farm-Batteriewerte aktuell', '', VARIABLETYPE_BOOLEAN);
+        $this->maintainGroupedVariable('BatteryCapacity', 'Speicherkapazität des one (kWh)', '', VARIABLETYPE_FLOAT);
+        $this->maintainGroupedVariable('BatteryEnergy', 'Verbleibende Speicherenergie des one (kWh)', '', VARIABLETYPE_FLOAT);
+        $this->maintainGroupedVariable('BatteryEnergyValid', 'Speicherenergie des one aktuell', '', VARIABLETYPE_BOOLEAN);
+        $this->maintainGroupedVariable('FarmBatteryCapacity', 'Farm-Speicherkapazität (kWh)', '', VARIABLETYPE_FLOAT);
+        $this->maintainGroupedVariable('FarmBatteryEnergy', 'Verbleibende Farm-Speicherenergie (kWh)', '', VARIABLETYPE_FLOAT);
+        $this->maintainGroupedVariable('FarmPV', 'Farm-PV-Leistung (W)', '', VARIABLETYPE_INTEGER);
+        $this->maintainGroupedVariable('FarmGrid', 'Farm-Netzleistung (berechnet, W)', '', VARIABLETYPE_INTEGER);
+        $this->maintainGroupedVariable('FarmGridImport', 'Farm-Netzbezug (berechnet, W)', '', VARIABLETYPE_INTEGER);
+        $this->maintainGroupedVariable('FarmGridExport', 'Farm-Einspeisung (berechnet, W)', '', VARIABLETYPE_INTEGER);
+        $this->maintainGroupedVariable('FarmAutarky', 'Farm-Momentanautarkie (berechnet, %)', '', VARIABLETYPE_FLOAT);
+        $this->maintainGroupedVariable('FarmWallboxPower', 'Farm-Wallbox-Leistung (W)', '', VARIABLETYPE_INTEGER);
+        $this->maintainGroupedVariable('FarmPowerValid', 'Farm-Leistungswerte aktuell', '', VARIABLETYPE_BOOLEAN);
+        $this->maintainGroupedVariable('DayForecast', 'Solarprognose heute (kWh)', '', VARIABLETYPE_FLOAT);
+        $this->maintainGroupedVariable('DayForecastAvailable', 'Solarprognose verfügbar', '', VARIABLETYPE_BOOLEAN);
+        $this->maintainGroupedVariable('DayStart', 'Tageserfassung seit', '~UnixTimestamp', VARIABLETYPE_INTEGER);
+        $this->maintainGroupedVariable('SecondPV', 'Zweiter one PV-Leistung (W)', '', VARIABLETYPE_INTEGER);
+        $this->maintainGroupedVariable('SecondBattery', 'Zweiter one Batterieleistung (W)', '', VARIABLETYPE_INTEGER);
+        $this->maintainGroupedVariable('SecondSOC', 'Zweiter one Batterieladezustand (%)', '', VARIABLETYPE_INTEGER);
+        $this->maintainGroupedVariable('SecondCapacity', 'Zweiter one Speicherkapazität (kWh)', '', VARIABLETYPE_FLOAT);
+        $this->maintainGroupedVariable('SecondOneValid', 'Zweiter one erreichbar', '', VARIABLETYPE_BOOLEAN);
+        $this->maintainGroupedVariable('LanSetupStatus', 'LAN-Einrichtung', '', VARIABLETYPE_STRING);
+        $this->maintainGroupedVariable('BatteryChargePower', 'Ladeleistung des one (W)', '', VARIABLETYPE_INTEGER);
+        $this->maintainGroupedVariable('BatteryDischargePower', 'Entladeleistung des one (W)', '', VARIABLETYPE_INTEGER);
+        $this->maintainGroupedVariable('GridImport', 'Netzbezug laut one (W)', '', VARIABLETYPE_INTEGER);
+        $this->maintainGroupedVariable('GridExport', 'Netzeinspeisung laut one (W)', '', VARIABLETYPE_INTEGER);
+        $this->maintainGroupedVariable('FarmBatteryChargePower', 'Farm-Batterieladeleistung (W)', '', VARIABLETYPE_INTEGER);
+        $this->maintainGroupedVariable('FarmBatteryDischargePower', 'Farm-Batterieentladeleistung (W)', '', VARIABLETYPE_INTEGER);
+        $this->maintainGroupedVariable('SGReadyState', 'SG Ready (Statuscode)', '', VARIABLETYPE_INTEGER);
+        $this->maintainGroupedVariable('SGReadyValid', 'SG-Ready-Status aktuell', '', VARIABLETYPE_BOOLEAN);
+        $this->maintainGroupedVariable('WallboxAvailable', 'Wallbox verfügbar', '', VARIABLETYPE_BOOLEAN);
+        $this->maintainGroupedVariable('WallboxSolarMode', 'Wallbox im Solarbetrieb', '', VARIABLETYPE_BOOLEAN);
+        $this->maintainGroupedVariable('WallboxChargeAllowed', 'Wallbox-Laden freigegeben', '', VARIABLETYPE_BOOLEAN);
+        $this->maintainGroupedVariable('WallboxCharging', 'Wallbox lädt', '', VARIABLETYPE_BOOLEAN);
+        $this->maintainGroupedVariable('WallboxVehicleConnected', 'Fahrzeug angeschlossen', '', VARIABLETYPE_BOOLEAN);
+        $this->maintainGroupedVariable('WallboxPhaseMode', 'Wallbox-Phasenmodus', '', VARIABLETYPE_INTEGER);
+        $this->maintainGroupedVariable('EmergencyState', 'Notstromstatus', '', VARIABLETYPE_STRING);
+        $this->maintainGroupedVariable('OneAutarky', 'Autarkie laut one (%)', '', VARIABLETYPE_INTEGER);
+        $this->maintainGroupedVariable('OneSelfConsumption', 'Eigenverbrauch laut one (%)', '', VARIABLETYPE_INTEGER);
+        $this->maintainGroupedVariable('OneEfficiencyValid', 'Autarkie und Eigenverbrauch aktuell', '', VARIABLETYPE_BOOLEAN);
         foreach (self::DAILY as $ident => $label) {
-            $this->RegisterVariableFloat($ident, $label, '', $dayPosition++);
+            $this->maintainGroupedVariable($ident, $label, '', VARIABLETYPE_FLOAT);
         }
-        $position = 24;
         foreach (self::EXTRA_GROUPS as $ident => $label) {
-            $this->RegisterVariableString($ident, $label, '', $position++);
+            $this->maintainGroupedVariable($ident, $label, '', VARIABLETYPE_STRING);
         }
     }
 
     public function ApplyChanges()
     {
         parent::ApplyChanges();
-        $this->groupVariables();
+        $this->maintainGroupedVariables();
         $this->SetTimerInterval('PollTimer', 0);
-        $this->SetValue('FarmBatteryValid', false);
-        $this->SetValue('BatteryEnergyValid', false);
-        $this->SetValue('OneEfficiencyValid', false);
-        $this->SetValue('FarmPowerValid', false);
-        $this->SetValue('SecondOneValid', false);
+        $this->setGroupedValue('FarmBatteryValid', false);
+        $this->setGroupedValue('BatteryEnergyValid', false);
+        $this->setGroupedValue('OneEfficiencyValid', false);
+        $this->setGroupedValue('FarmPowerValid', false);
+        $this->setGroupedValue('SecondOneValid', false);
         if (trim($this->ReadPropertyString('Host')) === '') {
             $this->SetStatus(104);
             return;
@@ -147,9 +149,7 @@ class E3DCOne extends IPSModule
         $this->SetTimerInterval('PollTimer', max(5, min(3600, $this->ReadPropertyInteger('Interval'))) * 1000);
     }
 
-    private function groupVariables(): void
-    {
-        $groups = [
+    private const GROUPS = [
             'Farm' => ['Farm live', [
                 'FarmPV', 'FarmGrid', 'FarmGridImport', 'FarmGridExport', 'FarmConsumption',
                 'FarmHouseConsumption', 'HeatPumpConsumption', 'FarmAutarky',
@@ -167,7 +167,7 @@ class E3DCOne extends IPSModule
                 'WallboxVehicleConnected', 'Wallboxes', 'WallboxDetails'
             ]],
             'Daily' => ['Tageswerte und Prognose', [
-                'DayForecast', 'DayForecastAvailable', 'DayStart', ...array_keys(self::DAILY)
+                'DayForecast', 'DayForecastAvailable', 'DayStart'
             ]],
             'Master' => ['Farmmaster', [
                 'PV', 'House', 'Grid', 'GridImport', 'GridExport', 'External',
@@ -184,39 +184,103 @@ class E3DCOne extends IPSModule
             ]]
         ];
 
-        $groupPosition = -100;
-        foreach ($groups as $key => [$label, $idents]) {
-            $groupIdent = 'E3DCGroup' . $key;
-            $category = @IPS_GetObjectIDByIdent($groupIdent, $this->InstanceID);
-            if ($category === false) {
-                $category = IPS_CreateCategory();
-                IPS_SetParent($category, $this->InstanceID);
-                IPS_SetIdent($category, $groupIdent);
-                IPS_SetName($category, $label);
-                IPS_SetPosition($category, $groupPosition);
+    private function variableLocation(string $ident): array
+    {
+        foreach (self::GROUPS as $index => [$label, $idents]) {
+            if ($index === 'Daily') {
+                $idents = array_merge($idents, array_keys(self::DAILY));
             }
-            $groupPosition += 10;
-            if (!IPS_CategoryExists($category)) {
-                continue;
-            }
-            foreach ($idents as $position => $ident) {
-                $target = @IPS_GetObjectIDByIdent($ident, $this->InstanceID);
-                if ($target === false || !IPS_VariableExists($target)) {
-                    continue;
-                }
-                $link = @IPS_GetObjectIDByIdent($ident, $category);
-                if ($link === false) {
-                    $link = IPS_CreateLink();
-                    IPS_SetParent($link, $category);
-                    IPS_SetIdent($link, $ident);
-                    IPS_SetName($link, IPS_GetName($target));
-                    IPS_SetPosition($link, $position * 10);
-                }
-                if (IPS_LinkExists($link) && IPS_GetLink($link)['TargetID'] !== $target) {
-                    IPS_SetLinkTargetID($link, $target);
-                }
+            $position = array_search($ident, $idents, true);
+            if ($position !== false) {
+                return ['E3DCGroup' . $index, $label, $position * 10];
             }
         }
+        throw new LogicException('Unbekannte Modulvariable: ' . $ident);
+    }
+
+    private function maintainGroupedVariable(string $ident, string $name, string $profile, int $type): void
+    {
+        [$groupIdent, $groupName, $position] = $this->variableLocation($ident);
+        $category = @IPS_GetObjectIDByIdent($groupIdent, $this->InstanceID);
+        if ($category === false) {
+            $category = IPS_CreateCategory();
+            IPS_SetParent($category, $this->InstanceID);
+            IPS_SetIdent($category, $groupIdent);
+            IPS_SetName($category, $groupName);
+            IPS_SetPosition($category, array_search(substr($groupIdent, 9), array_keys(self::GROUPS), true) * 10);
+        }
+        if (!IPS_CategoryExists($category)) {
+            return;
+        }
+
+        $existing = @IPS_GetObjectIDByIdent($ident, $category);
+        if ($existing !== false && IPS_VariableExists($existing)) {
+            return;
+        }
+        $original = @IPS_GetObjectIDByIdent($ident, $this->InstanceID);
+        if ($original !== false && !IPS_VariableExists($original)) {
+            return;
+        }
+        if ($existing !== false) {
+            // Only remove links created by the previous layout for this original variable.
+            if ($original === false || !IPS_LinkExists($existing)
+                || IPS_GetLink($existing)['TargetID'] !== $original || !IPS_SetIdent($existing, '')) {
+                return;
+            }
+        }
+        if ($original !== false) {
+            if (IPS_SetParent($original, $category)) {
+                IPS_SetPosition($original, $position);
+                if ($existing !== false) {
+                    IPS_DeleteLink($existing);
+                }
+            } elseif ($existing !== false) {
+                IPS_SetIdent($existing, $ident);
+            }
+            return;
+        }
+
+        $variable = IPS_CreateVariable($type);
+        IPS_SetParent($variable, $category);
+        IPS_SetIdent($variable, $ident);
+        IPS_SetName($variable, $name);
+        IPS_SetPosition($variable, $position);
+        if ($profile !== '') {
+            IPS_SetVariableCustomProfile($variable, $profile);
+        }
+    }
+
+    private function findGroupedVariable(string $ident, int $instance): int|false
+    {
+        [$groupIdent] = $this->variableLocation($ident);
+        $category = @IPS_GetObjectIDByIdent($groupIdent, $instance);
+        if ($category !== false && IPS_CategoryExists($category)) {
+            $variable = @IPS_GetObjectIDByIdent($ident, $category);
+            if ($variable !== false && IPS_VariableExists($variable)) {
+                return $variable;
+            }
+        }
+        $variable = @IPS_GetObjectIDByIdent($ident, $instance);
+        return $variable !== false && IPS_VariableExists($variable) ? $variable : false;
+    }
+
+    private function groupedVariableID(string $ident): int
+    {
+        $variable = $this->findGroupedVariable($ident, $this->InstanceID);
+        if ($variable === false) {
+            throw new RuntimeException('Modulvariable fehlt: ' . $ident);
+        }
+        return $variable;
+    }
+
+    private function setGroupedValue(string $ident, mixed $value): void
+    {
+        SetValue($this->groupedVariableID($ident), $value);
+    }
+
+    private function getGroupedValue(string $ident): mixed
+    {
+        return GetValue($this->groupedVariableID($ident));
     }
 
     public function DiscoverLAN(string $network, string $master, int $port, int $unit): string
@@ -225,8 +289,8 @@ class E3DCOne extends IPSModule
         if (!isset($result['second'])) {
             return $result['message'];
         }
-        $statusId = $this->GetIDForIdent('LanSetupStatus');
-        $this->SetValue('LanSetupStatus', 'IP-Adressen gefunden. Übernahme läuft.');
+        $statusId = $this->groupedVariableID('LanSetupStatus');
+        $this->setGroupedValue('LanSetupStatus', 'IP-Adressen gefunden. Übernahme läuft.');
         $script = <<<'PHP'
 $id = $_IPS['OneInstance'];
 $statusId = $_IPS['OneSetupStatus'];
@@ -261,8 +325,8 @@ PHP;
             'OneUnit' => $result['unit']
         ]);
         if (!$started) {
-            $this->SetValue('LanSetupStatus', 'Automatische Übernahme konnte nicht gestartet werden.');
-            return $this->GetValue('LanSetupStatus');
+            $this->setGroupedValue('LanSetupStatus', 'Automatische Übernahme konnte nicht gestartet werden.');
+            return $this->getGroupedValue('LanSetupStatus');
         }
 
         return $result['message'] . "\n\nAutomatische Übernahme gestartet. Das Ergebnis steht unter LAN-Einrichtung.";
@@ -436,7 +500,7 @@ PHP;
         }
 
         try {
-            $this->SetValue('FarmConsumptionValid', false);
+            $this->setGroupedValue('FarmConsumptionValid', false);
             $host = trim($this->ReadPropertyString('Host'));
             $port = $this->ReadPropertyInteger('Port');
             $unit = $this->ReadPropertyInteger('Unit');
@@ -457,25 +521,25 @@ PHP;
                 }
                 $registers = $this->readRegisters($socket, $unit, 2, 40068, 18);
                 $this->publishCore($registers);
-                $this->SetValue('LastSuccess', time());
+                $this->setGroupedValue('LastSuccess', time());
                 $this->readDetails($socket, $unit);
             } finally {
                 fclose($socket);
             }
 
-            $this->publishDaily($this->GetValue('FarmPowerValid'));
-            $this->SetValue('DataStatus', 'Messwerte aktualisiert');
+            $this->publishDaily($this->getGroupedValue('FarmPowerValid'));
+            $this->setGroupedValue('DataStatus', 'Messwerte aktualisiert');
             $this->SetStatus(102);
         } catch (RuntimeException $error) {
-            $this->SetValue('FarmBatteryValid', false);
-            $this->SetValue('BatteryEnergyValid', false);
-            $this->SetValue('FarmPowerValid', false);
-            $this->SetValue('SecondOneValid', false);
-            $this->SetValue('SGReadyValid', false);
-            $this->SetValue('OneEfficiencyValid', false);
-            $this->SetValue('WallboxAvailable', false);
+            $this->setGroupedValue('FarmBatteryValid', false);
+            $this->setGroupedValue('BatteryEnergyValid', false);
+            $this->setGroupedValue('FarmPowerValid', false);
+            $this->setGroupedValue('SecondOneValid', false);
+            $this->setGroupedValue('SGReadyValid', false);
+            $this->setGroupedValue('OneEfficiencyValid', false);
+            $this->setGroupedValue('WallboxAvailable', false);
             $this->publishDaily(false);
-            $this->SetValue('DataStatus', $error->getMessage());
+            $this->setGroupedValue('DataStatus', $error->getMessage());
             $this->SetStatus(201);
         } finally {
             IPS_SemaphoreLeave($lock);
@@ -486,18 +550,18 @@ PHP;
     {
         $index = 0;
         foreach (self::POWER as $ident => $label) {
-            $this->SetValue($ident, $this->signed32($registers, $index));
+            $this->setGroupedValue($ident, $this->signed32($registers, $index));
             $index += 2;
         }
-        $battery = $this->GetValue('Battery');
-        $grid = $this->GetValue('Grid');
-        $this->SetValue('BatteryChargePower', max(0, $battery));
-        $this->SetValue('BatteryDischargePower', max(0, -$battery));
-        $this->SetValue('GridImport', max(0, $grid));
-        $this->SetValue('GridExport', max(0, -$grid));
-        $this->SetValue('SOC', $registers[15]);
-        $this->SetValue('Emergency', $registers[16]);
-        $this->SetValue('EmergencyState', match ($registers[16]) {
+        $battery = $this->getGroupedValue('Battery');
+        $grid = $this->getGroupedValue('Grid');
+        $this->setGroupedValue('BatteryChargePower', max(0, $battery));
+        $this->setGroupedValue('BatteryDischargePower', max(0, -$battery));
+        $this->setGroupedValue('GridImport', max(0, $grid));
+        $this->setGroupedValue('GridExport', max(0, -$grid));
+        $this->setGroupedValue('SOC', $registers[15]);
+        $this->setGroupedValue('Emergency', $registers[16]);
+        $this->setGroupedValue('EmergencyState', match ($registers[16]) {
             0 => 'Nicht unterstützt',
             1 => 'Aktiv',
             2 => 'Nicht aktiv',
@@ -506,17 +570,17 @@ PHP;
             default => 'Unbekannter Status (' . $registers[16] . ')'
         });
         $efficiency = $registers[14];
-        $this->SetValue('EfficiencyRaw', sprintf('0x%04X', $efficiency));
+        $this->setGroupedValue('EfficiencyRaw', sprintf('0x%04X', $efficiency));
         $autarky = $efficiency >> 8;
         $selfConsumption = $efficiency & 0xFF;
         $valid = $autarky <= 100 && $selfConsumption <= 100;
         if ($valid) {
-            $this->SetValue('OneAutarky', $autarky);
-            $this->SetValue('OneSelfConsumption', $selfConsumption);
+            $this->setGroupedValue('OneAutarky', $autarky);
+            $this->setGroupedValue('OneSelfConsumption', $selfConsumption);
         }
-        $this->SetValue('OneEfficiencyValid', $valid);
+        $this->setGroupedValue('OneEfficiencyValid', $valid);
         $ems = $registers[17];
-        $this->SetValue('EMS', $ems);
+        $this->setGroupedValue('EMS', $ems);
         $flags = [];
         foreach (['Laden gesperrt', 'Entladen gesperrt', 'Notstrom möglich',
             'Wetterbasiertes Laden', 'Einspeisung abgeregelt', 'Ladesperrzeit',
@@ -570,27 +634,27 @@ PHP;
                 $wallboxes['Slot ' . $slot] = $details;
             }
         }
-        $this->SetValue('Wallboxes', $summary === [] ? $wallboxStatus : implode(' | ', $summary));
+        $this->setGroupedValue('Wallboxes', $summary === [] ? $wallboxStatus : implode(' | ', $summary));
         $this->publishJson('WallboxDetails', $wallboxes);
         $selectedWallbox = $wallboxes['Slot ' . $this->ReadPropertyInteger('WallboxSlot')] ?? [];
         $wallboxAvailable = $selectedWallbox['Verfügbar'] ?? false;
         if ($wallboxAvailable) {
-            $this->SetValue('WallboxSolarMode', $selectedWallbox['Betriebsart'] === 'Solarbetrieb');
-            $this->SetValue('WallboxChargeAllowed', $selectedWallbox['Laden freigegeben']);
-            $this->SetValue('WallboxCharging', $selectedWallbox['Auto lädt']);
-            $this->SetValue('WallboxVehicleConnected', $selectedWallbox['Fahrzeug angeschlossen']);
-            $this->SetValue('WallboxPhaseMode', $selectedWallbox['Aktive Phasen laut efy-Status']);
+            $this->setGroupedValue('WallboxSolarMode', $selectedWallbox['Betriebsart'] === 'Solarbetrieb');
+            $this->setGroupedValue('WallboxChargeAllowed', $selectedWallbox['Laden freigegeben']);
+            $this->setGroupedValue('WallboxCharging', $selectedWallbox['Auto lädt']);
+            $this->setGroupedValue('WallboxVehicleConnected', $selectedWallbox['Fahrzeug angeschlossen']);
+            $this->setGroupedValue('WallboxPhaseMode', $selectedWallbox['Aktive Phasen laut efy-Status']);
         }
-        $this->SetValue('WallboxAvailable', $wallboxAvailable);
+        $this->setGroupedValue('WallboxAvailable', $wallboxAvailable);
 
         $identity = $read('Geräteinformationen', 40002, 66);
         if ($identity !== null) {
             foreach (['Manufacturer', 'Model', 'Serial', 'Firmware'] as $index => $ident) {
                 $fields = array_slice($identity, 2 + 16 * $index, 16);
-                $this->SetValue($ident, $this->decodeText($fields));
+                $this->setGroupedValue($ident, $this->decodeText($fields));
             }
-            $this->SetValue('ModbusVersion', sprintf('%d.%d', $identity[0] >> 8, $identity[0] & 255));
-            $this->SetValue('RegisterCount', $identity[1]);
+            $this->setGroupedValue('ModbusVersion', sprintf('%d.%d', $identity[0] >> 8, $identity[0] & 255));
+            $this->setGroupedValue('RegisterCount', $identity[1]);
         }
 
         $strings = $read('PV-Strings', 40096, 9);
@@ -609,9 +673,9 @@ PHP;
         $meters = $read('Leistungsmesser und SG Ready', 40105, 33);
         $meter32 = $read('32-Bit-Phasenleistung', 40138, 48);
         $meterData = [];
-        $this->SetValue('SGReadyValid', $meters !== null);
+        $this->setGroupedValue('SGReadyValid', $meters !== null);
         if ($meters !== null) {
-            $this->SetValue('SGReadyState', $meters[32]);
+            $this->setGroupedValue('SGReadyState', $meters[32]);
             $meterData['SG Ready (Rohwert)'] = $meters[32];
             for ($i = 0; $i < 8; $i++) {
                 $entry = ['Typ' => $meters[4 * $i]];
@@ -639,20 +703,20 @@ PHP;
             }
         }
         $this->publishJson('BatteryDetails', $batteryData);
-        $batteryData = $this->batteryWithFallback($batteryData, $this->ReadPropertyInteger('CapacityFallbackWh'), $this->GetValue('SOC'));
+        $batteryData = $this->batteryWithFallback($batteryData, $this->ReadPropertyInteger('CapacityFallbackWh'), $this->getGroupedValue('SOC'));
         $hasBatteryEnergy = $this->hasBatteryEnergy($batteryData);
         if (($batteryData['Max. speicherbare Energie (Wh)'] ?? 0) > 0) {
-            $this->SetValue('BatteryCapacity', $batteryData['Max. speicherbare Energie (Wh)'] / 1000);
+            $this->setGroupedValue('BatteryCapacity', $batteryData['Max. speicherbare Energie (Wh)'] / 1000);
         }
         if ($hasBatteryEnergy) {
-            $this->SetValue('BatteryEnergy', $batteryData['Verbleibende Energie (Wh)'] / 1000);
+            $this->setGroupedValue('BatteryEnergy', $batteryData['Verbleibende Energie (Wh)'] / 1000);
         } elseif ($battery !== null) {
             $notes['Speicherenergie'] = 'Der one liefert keine plausible Speicherkapazität oder Restenergie.';
         }
         if ($batteryData['Geschätzt'] ?? false) {
             $notes['Speicherenergie (Quelle)'] = 'Restenergie aus eingetragener Kapazität und Geräte-SOC geschätzt.';
         }
-        $this->SetValue('BatteryEnergyValid', $hasBatteryEnergy);
+        $this->setGroupedValue('BatteryEnergyValid', $hasBatteryEnergy);
         $this->publishFarmBattery($batteryData, $notes);
 
         $remote = [];
@@ -699,8 +763,8 @@ PHP;
 
     private function publishFarmBattery(array $local, array &$notes): void
     {
-        $this->SetValue('FarmPowerValid', false);
-        $this->SetValue('FarmBatteryValid', false);
+        $this->setGroupedValue('FarmPowerValid', false);
+        $this->setGroupedValue('FarmBatteryValid', false);
         $secondHost = trim($this->ReadPropertyString('SecondHost'));
         if ($secondHost === '') {
             $snapshot = $this->readLegacyPeer($notes);
@@ -712,15 +776,15 @@ PHP;
                 $snapshot = null;
             }
         }
-        $this->SetValue('SecondOneValid', $snapshot !== null);
+        $this->setGroupedValue('SecondOneValid', $snapshot !== null);
         if ($snapshot === null) {
             return;
         }
         [$pv, $power, $soc, $remote] = $snapshot;
-        $this->SetValue('SecondPV', $pv);
-        $this->SetValue('SecondBattery', $power);
-        $this->SetValue('SecondSOC', $soc);
-        $this->SetValue('SecondCapacity', ($remote['Max. speicherbare Energie (Wh)'] ?? 0) / 1000);
+        $this->setGroupedValue('SecondPV', $pv);
+        $this->setGroupedValue('SecondBattery', $power);
+        $this->setGroupedValue('SecondSOC', $soc);
+        $this->setGroupedValue('SecondCapacity', ($remote['Max. speicherbare Energie (Wh)'] ?? 0) / 1000);
         $this->publishFarmPower($pv, $power);
 
         if (($local['Geschätzt'] ?? false) || ($remote['Geschätzt'] ?? false)) {
@@ -730,20 +794,20 @@ PHP;
         $remoteCapacity = $remote['Max. speicherbare Energie (Wh)'] ?? 0;
         $capacity = $localCapacity + $remoteCapacity;
         if ($localCapacity > 0 && $remoteCapacity > 0) {
-            $this->SetValue('FarmBatteryCapacity', $capacity / 1000);
+            $this->setGroupedValue('FarmBatteryCapacity', $capacity / 1000);
         }
         foreach ([$local, $remote] as $storage) {
             if (!$this->hasBatteryEnergy($storage)) {
-                $this->SetValue('FarmBatteryValid', false);
+                $this->setGroupedValue('FarmBatteryValid', false);
                 $notes['Farm-Batterie'] = 'Aktuelle, plausible Speicherenergie beider one erforderlich.';
                 return;
             }
         }
 
         $energy = $local['Verbleibende Energie (Wh)'] + $remote['Verbleibende Energie (Wh)'];
-        $this->SetValue('FarmBatteryEnergy', $energy / 1000);
-        $this->SetValue('FarmBatterySOC', round(100 * $energy / $capacity, 1));
-        $this->SetValue('FarmBatteryValid', true);
+        $this->setGroupedValue('FarmBatteryEnergy', $energy / 1000);
+        $this->setGroupedValue('FarmBatterySOC', round(100 * $energy / $capacity, 1));
+        $this->setGroupedValue('FarmBatteryValid', true);
     }
 
     private function readLegacyPeer(array &$notes): ?array
@@ -755,20 +819,20 @@ PHP;
         $moduleId = '{AAEF96D2-6F24-4FF9-9C9C-C7FECE2C1559}';
         if ($peer === $this->InstanceID || !IPS_InstanceExists($peer)
             || IPS_GetInstance($peer)['ModuleInfo']['ModuleID'] !== $moduleId) {
-            $this->SetValue('FarmBatteryValid', false);
+            $this->setGroupedValue('FarmBatteryValid', false);
             $notes['Farm-Batterie'] = 'Die Instanz des zweiten one auswählen.';
             return null;
         }
-        $pvId = @IPS_GetObjectIDByIdent('PV', $peer);
-        $powerId = @IPS_GetObjectIDByIdent('Battery', $peer);
-        $statusId = @IPS_GetObjectIDByIdent('LastSuccess', $peer);
-        $detailsId = @IPS_GetObjectIDByIdent('BatteryDetails', $peer);
+        $pvId = $this->findGroupedVariable('PV', $peer);
+        $powerId = $this->findGroupedVariable('Battery', $peer);
+        $statusId = $this->findGroupedVariable('LastSuccess', $peer);
+        $detailsId = $this->findGroupedVariable('BatteryDetails', $peer);
         $peerInterval = max(5, min(3600, IPS_GetProperty($peer, 'Interval')));
         $maxAge = 2 * $peerInterval + 10;
         if ($pvId <= 0 || $powerId <= 0 || $statusId <= 0
             || IPS_GetInstance($peer)['InstanceStatus'] !== 102
             || time() - GetValue($statusId) > $maxAge) {
-            $this->SetValue('FarmBatteryValid', false);
+            $this->setGroupedValue('FarmBatteryValid', false);
             $notes['Farm-Leistung'] = 'Aktuelle Leistungsdaten des zweiten one erforderlich.';
             return null;
         }
@@ -779,7 +843,7 @@ PHP;
             $remote = json_decode(GetValue($detailsId), true) ?? [];
         }
 
-        $socId = @IPS_GetObjectIDByIdent('SOC', $peer);
+        $socId = $this->findGroupedVariable('SOC', $peer);
         if ($socId > 0) {
             $remote = $this->batteryWithFallback($remote, IPS_GetProperty($peer, 'CapacityFallbackWh'), GetValue($socId));
         }
@@ -828,41 +892,41 @@ PHP;
 
     private function publishFarmPower(int $peerPV, int $peerBattery): void
     {
-        $pv = $this->GetValue('PV') + $peerPV;
-        $localBattery = $this->GetValue('Battery');
+        $pv = $this->getGroupedValue('PV') + $peerPV;
+        $localBattery = $this->getGroupedValue('Battery');
         $battery = $localBattery + $peerBattery;
-        $this->SetValue('FarmBatteryChargePower', max(0, $localBattery) + max(0, $peerBattery));
-        $this->SetValue('FarmBatteryDischargePower', max(0, -$localBattery) + max(0, -$peerBattery));
-        $wallbox = $this->GetValue('WallboxPower');
-        $this->SetValue('FarmPV', $pv);
-        $this->SetValue('FarmBatteryPower', $battery);
-        $this->SetValue('FarmWallboxPower', $wallbox);
-        if (!$this->GetValue('FarmConsumptionValid')) {
+        $this->setGroupedValue('FarmBatteryChargePower', max(0, $localBattery) + max(0, $peerBattery));
+        $this->setGroupedValue('FarmBatteryDischargePower', max(0, -$localBattery) + max(0, -$peerBattery));
+        $wallbox = $this->getGroupedValue('WallboxPower');
+        $this->setGroupedValue('FarmPV', $pv);
+        $this->setGroupedValue('FarmBatteryPower', $battery);
+        $this->setGroupedValue('FarmWallboxPower', $wallbox);
+        if (!$this->getGroupedValue('FarmConsumptionValid')) {
             return;
         }
 
         // The portal displays wallbox demand separately from the other consumers.
-        $demand = $this->GetValue('FarmConsumption') + $wallbox;
-        $grid = $demand - $pv - $this->GetValue('External') + $battery;
+        $demand = $this->getGroupedValue('FarmConsumption') + $wallbox;
+        $grid = $demand - $pv - $this->getGroupedValue('External') + $battery;
         $import = max(0, $grid);
-        $this->SetValue('FarmGrid', $grid);
-        $this->SetValue('FarmGridImport', $import);
-        $this->SetValue('FarmGridExport', max(0, -$grid));
-        $this->SetValue('FarmAutarky', $demand > 0 ? round(100 * max(0, $demand - $import) / $demand, 1) : 0.0);
-        $this->SetValue('FarmPowerValid', true);
+        $this->setGroupedValue('FarmGrid', $grid);
+        $this->setGroupedValue('FarmGridImport', $import);
+        $this->setGroupedValue('FarmGridExport', max(0, -$grid));
+        $this->setGroupedValue('FarmAutarky', $demand > 0 ? round(100 * max(0, $demand - $import) / $demand, 1) : 0.0);
+        $this->setGroupedValue('FarmPowerValid', true);
     }
 
     private function publishDaily(bool $valid): void
     {
         $forecastSource = $this->ReadPropertyInteger('ForecastSource');
-        $ownForecast = $this->GetIDForIdent('DayForecast');
+        $ownForecast = $this->groupedVariableID('DayForecast');
         $forecast = $forecastSource > 0 && $forecastSource !== $ownForecast && IPS_VariableExists($forecastSource)
             ? GetValue($forecastSource) : null;
         $forecastAvailable = (is_int($forecast) || is_float($forecast)) && is_finite((float) $forecast) && $forecast >= 0;
         if ($forecastAvailable) {
-            $this->SetValue('DayForecast', (float) $forecast);
+            $this->setGroupedValue('DayForecast', (float) $forecast);
         }
-        $this->SetValue('DayForecastAvailable', $forecastAvailable);
+        $this->setGroupedValue('DayForecastAvailable', $forecastAvailable);
 
         if (trim($this->ReadPropertyString('SecondHost')) === '' && $this->ReadPropertyInteger('SecondOne') === 0) {
             return;
@@ -880,17 +944,17 @@ PHP;
         }
         $powers = [];
         if ($valid) {
-            $battery = $this->GetValue('FarmBatteryPower');
+            $battery = $this->getGroupedValue('FarmBatteryPower');
             $powers = [
-                'DayPV' => $this->GetValue('FarmPV'),
+                'DayPV' => $this->getGroupedValue('FarmPV'),
                 'DayBatteryCharge' => max(0, $battery),
                 'DayBatteryDischarge' => max(0, -$battery),
-                'DayGridImport' => $this->GetValue('FarmGridImport'),
-                'DayGridExport' => $this->GetValue('FarmGridExport'),
-                'DayHouse' => $this->GetValue('FarmHouseConsumption'),
-                'DayHeatPump' => $this->GetValue('HeatPumpConsumption'),
-                'DayWallbox' => $this->GetValue('FarmWallboxPower'),
-                'DayConsumption' => $this->GetValue('FarmConsumption')
+                'DayGridImport' => $this->getGroupedValue('FarmGridImport'),
+                'DayGridExport' => $this->getGroupedValue('FarmGridExport'),
+                'DayHouse' => $this->getGroupedValue('FarmHouseConsumption'),
+                'DayHeatPump' => $this->getGroupedValue('HeatPumpConsumption'),
+                'DayWallbox' => $this->getGroupedValue('FarmWallboxPower'),
+                'DayConsumption' => $this->getGroupedValue('FarmConsumption')
             ];
             if ($state['start'] === 0) {
                 $state['start'] = $now;
@@ -908,12 +972,12 @@ PHP;
                 $total += (max(0, $startPower) + max(0, $powers[$ident])) * $seconds / 7200000;
             }
             $state['totals'][$ident] = $total;
-            $this->SetValue($ident, round($total, 3));
+            $this->setGroupedValue($ident, round($total, 3));
         }
         $state['time'] = $now;
         $state['powers'] = $powers;
         $this->WriteAttributeString('DailyTotals', json_encode($state));
-        $this->SetValue('DayStart', $state['start']);
+        $this->setGroupedValue('DayStart', $state['start']);
     }
 
     private function batteryWithFallback(array $values, int $configuredCapacity, int $soc): array
@@ -944,10 +1008,10 @@ PHP;
 
         $total = $farmMeter['L1 (W)'] + $farmMeter['L2 (W)'] + $farmMeter['L3 (W)'];
         $heat = $heatPumpMeter['L1 (W)'] + $heatPumpMeter['L2 (W)'] + $heatPumpMeter['L3 (W)'];
-        $this->SetValue('FarmConsumption', $total);
-        $this->SetValue('HeatPumpConsumption', $heat);
-        $this->SetValue('FarmHouseConsumption', $total - $heat);
-        $this->SetValue('FarmConsumptionValid', true);
+        $this->setGroupedValue('FarmConsumption', $total);
+        $this->setGroupedValue('HeatPumpConsumption', $heat);
+        $this->setGroupedValue('FarmHouseConsumption', $total - $heat);
+        $this->setGroupedValue('FarmConsumptionValid', true);
     }
 
     private function decodeText(array $registers): string
@@ -967,7 +1031,7 @@ PHP;
 
     private function publishJson(string $ident, array $data): void
     {
-        $this->SetValue($ident, json_encode((object) $data, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE));
+        $this->setGroupedValue($ident, json_encode((object) $data, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE));
     }
 
     private function readRegisters($socket, int $unit, int $transaction, int $register, int $count): array
