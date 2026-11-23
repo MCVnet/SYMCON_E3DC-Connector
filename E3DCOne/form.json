@@ -93,32 +93,35 @@
           "caption": "IP-Adresse des zweiten Farmgeräts (optional)"
         },
         {
-          "type": "CheckBox",
-          "name": "AutoFarmDevices",
-          "caption": "Zähler und Wallbox automatisch erkennen"
-        },
-        {
-          "type": "NumberSpinner",
-          "name": "FarmConsumptionMeter",
-          "caption": "Index Farm-Verbrauchszähler (−1 = automatisch)",
-          "minimum": -1,
-          "maximum": 7
-        },
-        {
-          "type": "CheckBox",
-          "name": "FarmMeterIsConsumption",
-          "caption": "Farmzähler ist ein reiner Verbrauchszähler"
-        },
-        {
-          "type": "Label",
-          "caption": "Standardmäßig wird der Farmzähler als Netz-Messpunkt verwendet. Nur bei einem separaten Gesamtverbrauchszähler umschalten."
-        },
-        {
-          "type": "NumberSpinner",
-          "name": "HeatPumpMeter",
-          "caption": "Index Wärmepumpenzähler (−1 = automatisch)",
-          "minimum": -1,
-          "maximum": 7
+          "type": "ExpansionPanel",
+          "caption": "Erweiterte Zählerzuordnung",
+          "expanded": false,
+          "items": [
+            {
+              "type": "CheckBox",
+              "name": "AutoFarmDevices",
+              "caption": "Zähler und Wallbox automatisch erkennen"
+            },
+            {
+              "type": "NumberSpinner",
+              "name": "FarmConsumptionMeter",
+              "caption": "Index Farm-Verbrauchszähler (−1 = automatisch)",
+              "minimum": -1,
+              "maximum": 7
+            },
+            {
+              "type": "CheckBox",
+              "name": "FarmMeterIsConsumption",
+              "caption": "Farmzähler ist ein reiner Verbrauchszähler"
+            },
+            {
+              "type": "NumberSpinner",
+              "name": "HeatPumpMeter",
+              "caption": "Index Wärmepumpenzähler (−1 = automatisch)",
+              "minimum": -1,
+              "maximum": 7
+            }
+          ]
         },
         {
           "type": "ExpansionPanel",
@@ -230,24 +233,101 @@
       "items": [
         {
           "type": "Label",
-          "caption": "Bei mehreren erkannten Wallboxen den Slot für die Übersicht wählen. Erkannte Komponenten erscheinen unter „Zubehör und Messpunkte“."
+          "caption": "Erkannte Wallboxen, Zähler, MPP-Tracker und Wechselrichter erscheinen nach der nächsten erfolgreichen Abfrage. Für die Übersicht verwendet Symcon einen verfügbaren Wallbox-Slot."
         },
         {
-          "type": "CheckBox",
-          "name": "ReadWallbox",
-          "caption": "Wallbox auch ohne automatische Erkennung auslesen"
+          "type": "List",
+          "name": "DetectedAccessories",
+          "caption": "Erkanntes Zubehör",
+          "rowCount": 5,
+          "add": false,
+          "delete": false,
+          "loadValuesFromConfiguration": false,
+          "values": [],
+          "columns": [
+            {
+              "caption": "Kennung",
+              "name": "Key",
+              "width": "135px"
+            },
+            {
+              "caption": "Anzeigename",
+              "name": "Name",
+              "width": "auto"
+            },
+            {
+              "caption": "Status",
+              "name": "Current",
+              "width": "125px"
+            }
+          ]
         },
         {
-          "type": "NumberSpinner",
-          "name": "WallboxSlot",
-          "caption": "Wallbox-Slot (−1 = automatisch)",
-          "minimum": -1,
-          "maximum": 7
+          "type": "ExpansionPanel",
+          "caption": "Namen und Sichtbarkeit anpassen",
+          "expanded": false,
+          "items": [
+            {
+              "type": "Label",
+              "caption": "Die Kennung aus der Liste übernehmen, zum Beispiel Wallbox0. Für die Einrichtung ist kein Eintrag erforderlich."
+            },
+            {
+              "type": "List",
+              "name": "AccessoryOptions",
+              "caption": "Optionale Anpassungen",
+              "rowCount": 4,
+              "add": true,
+              "delete": true,
+              "columns": [
+                {
+                  "caption": "Kennung",
+                  "name": "Key",
+                  "width": "130px",
+                  "add": "",
+                  "edit": {
+                    "type": "ValidationTextBox"
+                  }
+                },
+                {
+                  "caption": "Name",
+                  "name": "Name",
+                  "width": "auto",
+                  "add": "",
+                  "edit": {
+                    "type": "ValidationTextBox"
+                  }
+                },
+                {
+                  "caption": "Sichtbar",
+                  "name": "Visible",
+                  "width": "80px",
+                  "add": true,
+                  "edit": {
+                    "type": "CheckBox"
+                  }
+                }
+              ]
+            }
+          ]
         },
         {
-          "type": "ValidationTextBox",
-          "name": "AccessoryNames",
-          "caption": "Zubehörnamen als JSON, z. B. {\"Wallbox0\":\"Garage\",\"Zaehler4\":\"Wärmepumpe\"}"
+          "type": "ExpansionPanel",
+          "caption": "Manuelle Wallbox-Vorgaben",
+          "expanded": false,
+          "items": [
+            {
+              "type": "CheckBox",
+              "name": "ReadWallbox",
+              "caption": "Wallbox auch ohne automatische Erkennung auslesen"
+            },
+            {
+              "type": "NumberSpinner",
+              "name": "WallboxSlot",
+              "caption": "Wallbox-Slot (−1 = automatisch)",
+              "minimum": -1,
+              "maximum": 7
+            }
+          ]
         }
       ]
     },
@@ -257,40 +337,17 @@
       "expanded": false,
       "items": [
         {
-          "type": "Label",
-          "caption": "Ersatzkapazitäten nur angeben, wenn das Gerät keine plausible Kapazität liefert. Für die Prognose lässt sich eine vorhandene Symcon-Variable in kWh wählen."
-        },
-        {
-          "type": "NumberSpinner",
-          "name": "CapacityFallbackWh",
-          "caption": "Nutzbare Speicherkapazität als Ersatzwert (Wh, 0 = aus)",
-          "minimum": 0,
-          "maximum": 1000000
-        },
-        {
-          "type": "NumberSpinner",
-          "name": "SecondCapacityFallbackWh",
-          "caption": "Nutzbare Ersatzkapazität des zweiten one (Wh, 0 = aus)",
-          "minimum": 0,
-          "maximum": 1000000
-        },
-        {
-          "type": "SelectVariable",
-          "name": "ForecastSource",
-          "caption": "Symcon-Variable für Solarprognose heute (kWh)"
-        },
-        {
           "type": "ExpansionPanel",
-          "caption": "Solar-Tagesertrag über lokales RSCP",
+          "caption": "Lokales RSCP",
           "items": [
             {
               "type": "Label",
-              "caption": "Liest den gesamten gemessenen Farm-Tagesertrag vom Farmmaster auf Port 5034. Beide RSCP-Passwörter werden in der lokalen Symcon-Konfiguration hinterlegt."
+              "caption": "Liest die vom Gerät angebotenen Tagessummen über RSCP. Der Farmcontroller verwendet üblicherweise Port 5034. Benutzerpasswort und Verschlüsselungsschlüssel werden in dieser Symcon-Instanz hinterlegt."
             },
             {
               "type": "CheckBox",
               "name": "ReadRscpSolar",
-              "caption": "Solar-Tagesertrag vom Farmcontroller auslesen"
+              "caption": "RSCP-Tagessummen auslesen"
             },
             {
               "type": "NumberSpinner",
@@ -313,6 +370,54 @@
               "type": "PasswordTextBox",
               "name": "FarmRscpKey",
               "caption": "RSCP-Verschlüsselungsschlüssel"
+            }
+          ]
+        },
+        {
+          "type": "ExpansionPanel",
+          "caption": "Speicher und Notstromreserve",
+          "expanded": false,
+          "items": [
+            {
+              "type": "Label",
+              "caption": "Ersatzkapazitäten nur bei fehlenden Gerätedaten setzen. Die Reserve wird ausschließlich für die Anzeige der verfügbaren Speicherenergie verwendet."
+            },
+            {
+              "type": "NumberSpinner",
+              "name": "CapacityFallbackWh",
+              "caption": "Nutzbare Speicherkapazität als Ersatzwert (Wh, 0 = aus)",
+              "minimum": 0,
+              "maximum": 1000000
+            },
+            {
+              "type": "NumberSpinner",
+              "name": "SecondCapacityFallbackWh",
+              "caption": "Nutzbare Ersatzkapazität des zweiten one (Wh, 0 = aus)",
+              "minimum": 0,
+              "maximum": 1000000
+            },
+            {
+              "type": "NumberSpinner",
+              "name": "BackupReservePercent",
+              "caption": "Notstromreserve (%)",
+              "minimum": 0,
+              "maximum": 100
+            }
+          ]
+        },
+        {
+          "type": "ExpansionPanel",
+          "caption": "Solarprognose",
+          "expanded": false,
+          "items": [
+            {
+              "type": "Label",
+              "caption": "Eine vorhandene Prognosevariable in kWh kann hier verknüpft werden."
+            },
+            {
+              "type": "SelectVariable",
+              "name": "ForecastSource",
+              "caption": "Symcon-Variable für Solarprognose heute (kWh)"
             }
           ]
         }

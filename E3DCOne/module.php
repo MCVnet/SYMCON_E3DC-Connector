@@ -16,6 +16,17 @@ class E3DCOne extends IPSModule
         'ReadNotes' => 'Nicht verfügbare Daten'
     ];
 
+    private const RSCP_ENERGY = [
+        'DB_BAT_POWER_IN' => 'Batterie geladen',
+        'DB_BAT_POWER_OUT' => 'Batterie entladen',
+        'DB_GRID_POWER_IN' => 'Netzbezug',
+        'DB_GRID_POWER_OUT' => 'Netzeinspeisung',
+        'DB_CONSUMPTION' => 'Verbrauch',
+        'DB_PRODUCTION_POWER' => 'Produktion laut DB_PRODUCTION_POWER',
+        'DB_PM_0_POWER' => 'Zähler 0',
+        'DB_PM_1_POWER' => 'Zähler 1'
+    ];
+
     private const DAILY = [
         'DayPV' => 'Solarproduktion heute (kWh)',
         'DayBatteryCharge' => 'Batterie geladen heute (kWh)',
@@ -58,6 +69,8 @@ class E3DCOne extends IPSModule
         $this->RegisterPropertyBoolean('AutoFarmDevices', true);
         $this->RegisterPropertyBoolean('ReadWallbox', false);
         $this->RegisterPropertyString('AccessoryNames', '{}');
+        $this->RegisterPropertyString('AccessoryOptions', '[]');
+        $this->RegisterPropertyInteger('BackupReservePercent', 0);
         $this->RegisterPropertyBoolean('AllowWallboxControl', false);
         $this->RegisterPropertyBoolean('AllowBatteryControl', false);
         $this->RegisterPropertyInteger('WallboxSlot', -1);
@@ -111,6 +124,7 @@ class E3DCOne extends IPSModule
         $this->maintainGroupedVariable('FarmBatteryValid', 'Farm-Batteriewerte aktuell', '', VARIABLETYPE_BOOLEAN);
         $this->maintainGroupedVariable('BatteryCapacity', 'Speicherkapazität des one (kWh)', '', VARIABLETYPE_FLOAT);
         $this->maintainGroupedVariable('BatteryEnergy', 'Verbleibende Speicherenergie des one (kWh)', '', VARIABLETYPE_FLOAT);
+        $this->maintainGroupedVariable('BatteryEnergyAboveReserve', 'Speicherenergie oberhalb der Reserve (kWh)', '', VARIABLETYPE_FLOAT);
         $this->maintainGroupedVariable('BatteryEnergyValid', 'Speicherenergie des one aktuell', '', VARIABLETYPE_BOOLEAN);
         $this->maintainGroupedVariable('FarmBatteryCapacity', 'Farm-Speicherkapazität (kWh)', '', VARIABLETYPE_FLOAT);
         $this->maintainGroupedVariable('FarmBatteryEnergy', 'Verbleibende Farm-Speicherenergie (kWh)', '', VARIABLETYPE_FLOAT);
@@ -177,6 +191,7 @@ class E3DCOne extends IPSModule
         $this->setGroupedValue('SGReadyValid', false);
         $this->setGroupedValue('WallboxAvailable', false);
         $this->publishAccessories([]);
+        $this->publishRscpEnergy([]);
         if (!$this->ReadPropertyBoolean('Active')) {
             $daily = json_decode($this->ReadAttributeString('DailyTotals'), true) ?? [];
             $daily['powers'] = [];
@@ -208,7 +223,7 @@ class E3DCOne extends IPSModule
             'Storage' => ['Batterie und Speicher', [
                 'SOC', 'Battery',
                 'BatteryChargePower', 'BatteryDischargePower', 'BatteryCapacity', 'BatteryEnergy',
-                'BatteryEnergyValid', 'BatteryDetails'
+                'BatteryEnergyValid', 'BatteryEnergyAboveReserve', 'BatteryDetails'
             ]],
             'Wallbox' => ['Wallbox – Übersicht', [
                 'WallboxAvailable', 'WallboxPower', 'WallboxSolar', 'WallboxCharging',
@@ -856,6 +871,14 @@ PHP;
         $wallboxStatus = 'Abfrage deaktiviert';
         if ($auto || $this->ReadPropertyBoolean('ReadWallbox')) {
             $values = $read('Wallbox-Slots', 40088, 8);
+            if ($values === null && $connectionUsable) {
+                for ($index = 0; $index < 8 && $connectionUsable; $index++) {
+                    $state = $read('Wallbox-Slot ' . $index, 40088 + $index, 1);
+                    if ($state !== null) {
+                        $values[$index] = $state[0];
+                    }
+                }
+            }
             $wallboxStatus = $values === null ? 'Wallbox-Abfrage fehlgeschlagen' : 'Kein Wallbox-Slot verfügbar';
             foreach ($values ?? [] as $slot => $state) {
                 $available = ($state & 1) !== 0;
@@ -877,11 +900,9 @@ PHP;
         }
         $this->setGroupedValue('Wallboxes', $summary === [] ? $wallboxStatus : implode(' | ', $summary));
         $this->publishJson('WallboxDetails', $wallboxes);
-        $slot = $this->ReadPropertyInteger('WallboxSlot');
-        if ($slot === -1 && count($availableSlots) === 1) {
-            $slot = $availableSlots[0];
-        } elseif ($slot === -1 && count($availableSlots) > 1) {
-            $notes['Wallbox-Zuordnung'] = 'Mehrere Wallboxen gefunden. Bitte den gewünschten Slot wählen.';
+        $slot = $this->chooseWallboxSlot($availableSlots, $this->ReadPropertyInteger('WallboxSlot'));
+        if (count($availableSlots) > 1) {
+            $notes['Wallbox-Zuordnung'] = 'Übersicht verwendet Slot ' . $slot . '. Alle erkannten Wallboxen stehen unter Zubehör.';
         }
         $selectedWallbox = $wallboxes['Slot ' . $slot] ?? [];
         $wallboxAvailable = $selectedWallbox['Verfügbar'] ?? false;
@@ -972,6 +993,10 @@ PHP;
         }
         if ($hasBatteryEnergy) {
             $this->setGroupedValue('BatteryEnergy', $batteryData['Verbleibende Energie (Wh)'] / 1000);
+            $reserve = max(0, min(100, $this->ReadPropertyInteger('BackupReservePercent')));
+            $available = max(0, $batteryData['Verbleibende Energie (Wh)']
+                - $batteryData['Max. speicherbare Energie (Wh)'] * $reserve / 100);
+            $this->setGroupedValue('BatteryEnergyAboveReserve', round($available / 1000, 3));
         } elseif ($battery !== null) {
             $notes['Speicherenergie'] = 'Der one liefert keine plausible Speicherkapazität oder Restenergie.';
         }
@@ -1029,15 +1054,51 @@ PHP;
             'Wechselrichter' => array_filter($inverters, static fn (array $entry): bool => $entry['Frequenz L1 (Hz)'] > 0
                 || $entry['L1']['AC-Spannung (V)'] > 0 || $entry['L1']['DC-Spannung (V)'] > 0)
         ];
-        $this->publishAccessories($accessories);
+        $this->publishAccessories($accessories, $farm, $heatPump);
         $this->publishJson('ReadNotes', $notes);
     }
 
-    private function publishAccessories(array $groups): void
+    private function chooseWallboxSlot(array $available, int $preferred): int
+    {
+        return in_array($preferred, $available, true) ? $preferred : ($available[0] ?? -1);
+    }
+
+    public function GetConfigurationForm(): string
+    {
+        $form = json_decode(file_get_contents(__DIR__ . '/form.json'), true, 512, JSON_THROW_ON_ERROR);
+        $root = @IPS_GetObjectIDByIdent('CategoryAccessories', $this->InstanceID);
+        $detected = [];
+        foreach ($root !== false && IPS_CategoryExists($root) ? IPS_GetChildrenIDs($root) : [] as $category) {
+            if (!IPS_CategoryExists($category)) {
+                continue;
+            }
+            $key = IPS_GetObject($category)['ObjectIdent'];
+            $current = @IPS_GetObjectIDByIdent('Aktuell', $category);
+            $detected[] = ['Key' => $key, 'Name' => IPS_GetName($category),
+                'Current' => $current !== false && IPS_VariableExists($current) && GetValue($current) ? 'Erkannt' : 'Zuletzt erkannt'];
+        }
+        foreach ($form['elements'] as &$section) {
+            foreach ($section['items'] ?? [] as $index => $item) {
+                if (($item['name'] ?? '') === 'DetectedAccessories') {
+                    $section['items'][$index]['values'] = $detected;
+                }
+            }
+        }
+        unset($section);
+        return json_encode($form, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE);
+    }
+
+    private function publishAccessories(array $groups, int $farm = -1, int $heatPump = -1): void
     {
         $ident = 'CategoryAccessories';
         $root = @IPS_GetObjectIDByIdent($ident, $this->InstanceID);
         $names = json_decode($this->ReadPropertyString('AccessoryNames'), true);
+        $settings = [];
+        foreach (json_decode($this->ReadPropertyString('AccessoryOptions'), true) ?? [] as $row) {
+            if (is_array($row) && is_string($row['Key'] ?? null)) {
+                $settings[$row['Key']] = $row;
+            }
+        }
         if ($root === false && array_filter($groups) === []) {
             return;
         }
@@ -1048,9 +1109,18 @@ PHP;
             foreach ($entries as $label => $fields) {
                 $index = (int) substr($label, strrpos($label, ' ') + 1);
                 $key = $kind . $index;
-                $name = is_array($names) && is_string($names[$key] ?? null) ? trim($names[$key]) : '';
-                $category = $this->accessoryCategory($root, $key, $name !== '' ? $name : $kind . ' ' . $index);
+                $name = trim((string) ($settings[$key]['Name'] ?? ($names[$key] ?? '')));
+                $visible = (bool) ($settings[$key]['Visible'] ?? true);
+                $defaultName = match (true) {
+                    $kind === 'Zaehler' && $index === $farm => 'Farmzähler',
+                    $kind === 'Zaehler' && $index === $heatPump => 'Wärmepumpenzähler',
+                    $kind === 'Zaehler' => 'Zähler ' . $index,
+                    $kind === 'String' => 'MPP-Tracker ' . $index,
+                    default => $kind . ' ' . $index
+                };
+                $category = $this->accessoryCategory($root, $key, $name !== '' ? $name : $defaultName);
                 $current[] = $category;
+                IPS_SetHidden($category, !$visible);
                 $this->publishAccessoryValue($category, 'Aktuell', 'Daten aktuell', true);
                 foreach ($fields as $field => $value) {
                     if (is_array($value)) {
@@ -1401,22 +1471,52 @@ PHP;
                 throw new RuntimeException('Tageswechsel während der RSCP-Abfrage. Neuer Versuch im nächsten Intervall.');
             }
             $this->setGroupedValue('RscpDayEnergy', json_encode($energy, JSON_THROW_ON_ERROR | JSON_FORCE_OBJECT));
+            $this->publishRscpEnergy($energy);
             $solarWh = $energy['DB_DC_POWER'] ?? null;
             if ($solarWh === null || $solarWh < 0) {
-                throw new RuntimeException('RSCP lieferte keinen gültigen Wert für DB_DC_POWER.');
+                $this->setGroupedValue('RscpSolarStatus', 'RSCP-Tagessummen gelesen. Solarertrag fehlt.');
+                if (!$this->hasCurrentRscpSolar(time(), strtotime('today'))) {
+                    $this->publishSolarFallback();
+                }
+                return;
             }
             $this->WriteAttributeInteger('RscpSolarReadAt', time());
             $this->setGroupedValue('DayPV', $solarWh / 1000);
             $this->setGroupedValue('DayPVSource', 'E3/DC Farmcontroller (RSCP: DB_DC_POWER)');
-            $this->setGroupedValue('RscpSolarStatus', 'RSCP-Tagesertrag zuletzt gelesen um ' . date('H:i:s'));
+            $this->setGroupedValue('RscpSolarStatus', 'RSCP-Tagesdaten zuletzt gelesen um ' . date('H:i:s'));
         } catch (RuntimeException $error) {
             $this->setGroupedValue('RscpSolarStatus', $error->getMessage());
             if (!$this->hasCurrentRscpSolar(time(), strtotime('today'))) {
+                $this->publishRscpEnergy([]);
                 $this->publishSolarFallback();
             }
         } finally {
             IPS_SemaphoreLeave($lock);
         }
+    }
+
+    private function publishRscpEnergy(array $energy): void
+    {
+        $daily = @IPS_GetObjectIDByIdent('E3DCGroupDaily', $this->InstanceID);
+        if ($daily === false || !IPS_CategoryExists($daily)) {
+            return;
+        }
+        if ($energy === [] && @IPS_GetObjectIDByIdent('CategoryRscpEnergy', $daily) === false) {
+            return;
+        }
+        $root = $this->accessoryCategory($daily, 'CategoryRscpEnergy', 'Direkte RSCP-Tagessummen');
+        foreach (self::RSCP_ENERGY as $tag => $label) {
+            $existing = @IPS_GetObjectIDByIdent($tag, $root);
+            $value = $energy[$tag] ?? null;
+            if ($value === null && $existing === false) {
+                continue;
+            }
+            $this->publishAccessoryValue($root, $tag . 'Aktuell', $label . ' aktuell', $value !== null);
+            if ($value !== null) {
+                $this->publishAccessoryValue($root, $tag, $label . ' (kWh)', $value / 1000.0);
+            }
+        }
+        $this->publishAccessoryValue($root, 'LastRead', 'Letzte erfolgreiche RSCP-Abfrage', $energy === [] ? 0 : time());
     }
 
     private function hasCurrentRscpSolar(int $now, int $midnight): bool
