@@ -221,7 +221,7 @@
     },
     {
       "type": "ExpansionPanel",
-      "caption": "Wallbox und Zubehör",
+      "caption": "Zusatzzähler, Wallbox und Zubehör",
       "expanded": false,
       "items": [
         {
