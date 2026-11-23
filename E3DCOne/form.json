@@ -177,6 +177,32 @@
     },
     {
       "type": "ExpansionPanel",
+      "caption": "Zubehör und lokale Steuerung",
+      "expanded": false,
+      "items": [
+        {
+          "type": "ValidationTextBox",
+          "name": "AccessoryNames",
+          "caption": "Zubehörnamen als JSON, z. B. {\"Wallbox0\":\"Garage\",\"Zaehler4\":\"Wärmepumpe\"}"
+        },
+        {
+          "type": "CheckBox",
+          "name": "AllowWallboxControl",
+          "caption": "Wallbox-Steuerbefehle am Hauptgerät erlauben"
+        },
+        {
+          "type": "CheckBox",
+          "name": "AllowBatteryControl",
+          "caption": "Zeitlich begrenzte Batterie-Leistungsvorgaben erlauben"
+        },
+        {
+          "type": "Label",
+          "caption": "Steuerbefehle sind als Symcon-Skriptfunktionen verfügbar. Das Gerät muss die jeweiligen Modbus-Register unterstützen."
+        }
+      ]
+    },
+    {
+      "type": "ExpansionPanel",
       "caption": "Bestehende Einrichtung",
       "items": [
         {

@@ -55,6 +55,9 @@ class E3DCOne extends IPSModule
         $this->RegisterPropertyInteger('Interval', 15);
         $this->RegisterPropertyBoolean('AutoFarmDevices', true);
         $this->RegisterPropertyBoolean('ReadWallbox', false);
+        $this->RegisterPropertyString('AccessoryNames', '{}');
+        $this->RegisterPropertyBoolean('AllowWallboxControl', false);
+        $this->RegisterPropertyBoolean('AllowBatteryControl', false);
         $this->RegisterPropertyInteger('WallboxSlot', -1);
         $this->RegisterPropertyInteger('FarmConsumptionMeter', -1);
         $this->RegisterPropertyBoolean('FarmMeterIsConsumption', false);
@@ -168,6 +171,7 @@ class E3DCOne extends IPSModule
         $this->setGroupedValue('FarmConsumptionValid', false);
         $this->setGroupedValue('SGReadyValid', false);
         $this->setGroupedValue('WallboxAvailable', false);
+        $this->publishAccessories([]);
         if (!$this->ReadPropertyBoolean('Active')) {
             $daily = json_decode($this->ReadAttributeString('DailyTotals'), true) ?? [];
             $daily['powers'] = [];
@@ -178,7 +182,7 @@ class E3DCOne extends IPSModule
             return;
         }
         if (trim($this->ReadPropertyString('Host')) === '') {
-            $this->setGroupedValue('DataStatus', 'Farmmaster-IP fehlt');
+            $this->setGroupedValue('DataStatus', 'IP-Adresse des Hauptgeräts fehlt');
             $this->SetStatus(104);
             return;
         }
@@ -604,18 +608,21 @@ PHP;
                 if ($this->readRegisters($socket, $unit, 1, 40001, 1)[0] !== 0xE3DC) {
                     throw new RuntimeException('E3/DC Simple Mode wurde nicht erkannt.');
                 }
-                $registers = $this->readRegisters($socket, $unit, 2, 40068, 18);
+                $transaction = 2;
+                $notes = [];
+                $registers = $this->readCore($socket, $unit, $transaction, $notes);
                 $this->publishCore($registers);
                 $this->setGroupedValue('LastSuccess', time());
-                $this->readDetails($socket, $unit);
+                $this->readDetails($socket, $unit, $transaction, $notes, $registers[15] ?? -1);
             } finally {
                 fclose($socket);
             }
 
-            $this->publishDaily($this->getGroupedValue('FarmPowerValid'));
+            $this->publishDaily($this->getGroupedValue('FarmPowerValid'), $registers);
             $this->setGroupedValue('DataStatus', 'Messwerte aktualisiert');
             $this->SetStatus(102);
         } catch (RuntimeException $error) {
+            $this->publishAccessories([]);
             $this->setGroupedValue('FarmBatteryValid', false);
             $this->setGroupedValue('BatteryEnergyValid', false);
             $this->setGroupedValue('FarmPowerValid', false);
@@ -631,11 +638,42 @@ PHP;
         }
     }
 
+    private function readCore($socket, int $unit, int &$transaction, array &$notes): array
+    {
+        usleep(110000);
+        try {
+            return $this->readRegisters($socket, $unit, $transaction++, 40068, 18);
+        } catch (RuntimeException $error) {
+            if (!str_starts_with($error->getMessage(), 'Modbus-Ausnahme ')) {
+                throw $error;
+            }
+        }
+        usleep(110000);
+        $core = $this->readRegisters($socket, $unit, $transaction++, 40068, 8);
+        foreach ([8 => 2, 10 => 2, 12 => 2, 14 => 1, 15 => 1, 16 => 1, 17 => 1] as $offset => $count) {
+            usleep(110000);
+            try {
+                $values = $this->readRegisters($socket, $unit, $transaction++, 40068 + $offset, $count);
+                foreach ($values as $index => $value) {
+                    $core[$offset + $index] = $value;
+                }
+            } catch (RuntimeException $error) {
+                if (!str_starts_with($error->getMessage(), 'Modbus-Ausnahme ')) {
+                    throw $error;
+                }
+                $notes['Register ' . (40068 + $offset)] = $error->getMessage();
+            }
+        }
+        return $core;
+    }
+
     private function publishCore(array $registers): void
     {
         $index = 0;
         foreach (self::POWER as $ident => $label) {
-            $this->setGroupedValue($ident, $this->signed32($registers, $index));
+            if (isset($registers[$index])) {
+                $this->setGroupedValue($ident, $this->signed32($registers, $index));
+            }
             $index += 2;
         }
         $battery = $this->getGroupedValue('Battery');
@@ -644,9 +682,12 @@ PHP;
         $this->setGroupedValue('BatteryDischargePower', max(0, -$battery));
         $this->setGroupedValue('GridImport', max(0, $grid));
         $this->setGroupedValue('GridExport', max(0, -$grid));
-        $this->setGroupedValue('SOC', $registers[15]);
-        $this->setGroupedValue('Emergency', $registers[16]);
-        $this->setGroupedValue('EmergencyState', match ($registers[16]) {
+        if (isset($registers[15])) {
+            $this->setGroupedValue('SOC', $registers[15]);
+        }
+        $this->setGroupedValue('Emergency', $registers[16] ?? 0);
+        $this->setGroupedValue('EmergencyState', match ($registers[16] ?? -1) {
+            -1 => 'Nicht verfügbar',
             0 => 'Nicht unterstützt',
             1 => 'Aktiv',
             2 => 'Nicht aktiv',
@@ -654,7 +695,7 @@ PHP;
             4 => 'Motorschalter außerhalb Normalstellung',
             default => 'Unbekannter Status (' . $registers[16] . ')'
         });
-        $efficiency = $registers[14];
+        $efficiency = $registers[14] ?? 0xFFFF;
         $this->setGroupedValue('EfficiencyRaw', sprintf('0x%04X', $efficiency));
         $autarky = $efficiency >> 8;
         $selfConsumption = $efficiency & 0xFF;
@@ -664,7 +705,7 @@ PHP;
             $this->setGroupedValue('OneSelfConsumption', $selfConsumption);
         }
         $this->setGroupedValue('OneEfficiencyValid', $valid);
-        $ems = $registers[17];
+        $ems = $registers[17] ?? 0;
         $this->setGroupedValue('EMS', $ems);
         $flags = [];
         foreach (['Laden gesperrt', 'Entladen gesperrt', 'Notstrom möglich',
@@ -675,10 +716,8 @@ PHP;
         $this->publishJson('EMSFlags', $flags);
     }
 
-    private function readDetails($socket, int $unit): void
+    private function readDetails($socket, int $unit, int $transaction, array $notes, int $soc): void
     {
-        $transaction = 3;
-        $notes = [];
         $connectionUsable = true;
         $read = function (string $label, int $start, int $count) use ($socket, $unit, &$transaction, &$notes, &$connectionUsable): ?array {
             if (!$connectionUsable) {
@@ -754,7 +793,7 @@ PHP;
         $strings = $read('PV-Strings', 40096, 9);
         $stringData = [];
         if ($strings !== null) {
-            for ($i = 0; $i < 2; $i++) {
+            for ($i = 0; $i < 3; $i++) {
                 $stringData['String ' . ($i + 1)] = [
                     'Spannung (V)' => $strings[$i],
                     'Strom (A)' => $strings[3 + $i] / 100,
@@ -765,12 +804,19 @@ PHP;
         $this->publishJson('DCStrings', $stringData);
 
         $meters = $read('Leistungsmesser und SG Ready', 40105, 33);
+        $sgReady = $meters !== null ? $meters[32] : null;
+        if ($meters === null && $connectionUsable) {
+            $meters = $read('Leistungsmesser', 40105, 32);
+            $sgReady = $read('SG Ready', 40137, 1)[0] ?? null;
+        }
         $meter32 = $read('32-Bit-Phasenleistung', 40138, 48);
         $meterData = [];
-        $this->setGroupedValue('SGReadyValid', $meters !== null);
+        $this->setGroupedValue('SGReadyValid', $sgReady !== null);
+        if ($sgReady !== null) {
+            $this->setGroupedValue('SGReadyState', $sgReady);
+            $meterData['SG Ready (Rohwert)'] = $sgReady;
+        }
         if ($meters !== null) {
-            $this->setGroupedValue('SGReadyState', $meters[32]);
-            $meterData['SG Ready (Rohwert)'] = $meters[32];
             for ($i = 0; $i < 8; $i++) {
                 $entry = ['Typ' => $meters[4 * $i]];
                 for ($phase = 0; $phase < 3; $phase++) {
@@ -805,7 +851,7 @@ PHP;
             }
         }
         $this->publishJson('BatteryDetails', $batteryData);
-        $batteryData = $this->batteryWithFallback($batteryData, $this->ReadPropertyInteger('CapacityFallbackWh'), $this->getGroupedValue('SOC'));
+        $batteryData = $this->batteryWithFallback($batteryData, $this->ReadPropertyInteger('CapacityFallbackWh'), $soc);
         $hasBatteryEnergy = $this->hasBatteryEnergy($batteryData);
         if (($batteryData['Max. speicherbare Energie (Wh)'] ?? 0) > 0) {
             $this->setGroupedValue('BatteryCapacity', $batteryData['Max. speicherbare Energie (Wh)'] / 1000);
@@ -860,7 +906,182 @@ PHP;
         }
         $this->publishJson('Inverters', $inverters);
 
+        $accessories = [
+            'Wallbox' => array_filter($wallboxes, static fn (array $entry): bool => $entry['Verfügbar']),
+            'Zaehler' => array_filter($meterData, static fn ($entry): bool => is_array($entry) && $entry['Typ'] !== 0),
+            'String' => array_filter($stringData, static fn (array $entry): bool => array_sum($entry) !== 0),
+            'Wechselrichter' => array_filter($inverters, static fn (array $entry): bool => $entry['Frequenz L1 (Hz)'] > 0
+                || $entry['L1']['AC-Spannung (V)'] > 0 || $entry['L1']['DC-Spannung (V)'] > 0)
+        ];
+        $this->publishAccessories($accessories);
         $this->publishJson('ReadNotes', $notes);
+    }
+
+    private function publishAccessories(array $groups): void
+    {
+        $ident = 'CategoryAccessories';
+        $root = @IPS_GetObjectIDByIdent($ident, $this->InstanceID);
+        $names = json_decode($this->ReadPropertyString('AccessoryNames'), true);
+        if ($root === false && array_filter($groups) === []) {
+            return;
+        }
+        $root = $this->accessoryCategory($this->InstanceID, $ident, 'Zubehör');
+        $current = [];
+        foreach ($groups as $kind => $entries) {
+            foreach ($entries as $label => $fields) {
+                $index = (int) substr($label, strrpos($label, ' ') + 1);
+                $key = $kind . $index;
+                $name = is_array($names) && is_string($names[$key] ?? null) ? trim($names[$key]) : '';
+                $category = $this->accessoryCategory($root, $key, $name !== '' ? $name : $kind . ' ' . $index);
+                $current[] = $category;
+                $this->publishAccessoryValue($category, 'Aktuell', 'Daten aktuell', true);
+                foreach ($fields as $field => $value) {
+                    if (is_array($value)) {
+                        foreach ($value as $metric => $measurement) {
+                            $this->publishAccessoryValue($category, 'Value' . sha1($field . ' ' . $metric), $field . ' ' . $metric, $measurement);
+                        }
+                        continue;
+                    }
+                    $this->publishAccessoryValue($category, 'Value' . sha1($field), $field, $value);
+                }
+            }
+        }
+        foreach (IPS_GetChildrenIDs($root) as $category) {
+            if (!in_array($category, $current, true) && IPS_CategoryExists($category)) {
+                $status = @IPS_GetObjectIDByIdent('Aktuell', $category);
+                if ($status !== false && IPS_VariableExists($status)) {
+                    SetValue($status, false);
+                }
+            }
+        }
+    }
+
+    private function accessoryCategory(int $parent, string $ident, string $name): int
+    {
+        $category = @IPS_GetObjectIDByIdent($ident, $parent);
+        if ($category === false) {
+            $category = IPS_CreateCategory();
+            IPS_SetParent($category, $parent);
+            IPS_SetIdent($category, $ident);
+        }
+        if (IPS_GetName($category) !== $name) {
+            IPS_SetName($category, $name);
+        }
+        return $category;
+    }
+
+    private function publishAccessoryValue(int $parent, string $ident, string $name, mixed $value): void
+    {
+        $variable = @IPS_GetObjectIDByIdent($ident, $parent);
+        if ($variable === false) {
+            $type = match (gettype($value)) {
+                'boolean' => VARIABLETYPE_BOOLEAN,
+                'integer' => VARIABLETYPE_INTEGER,
+                'double' => VARIABLETYPE_FLOAT,
+                default => VARIABLETYPE_STRING
+            };
+            $variable = IPS_CreateVariable($type);
+            IPS_SetParent($variable, $parent);
+            IPS_SetIdent($variable, $ident);
+            IPS_SetName($variable, $name);
+        }
+        SetValue($variable, $value);
+    }
+
+    public function SetWallboxMode(int $slot, bool $solar): void
+    {
+        $this->setWallboxBit($slot, 2, $solar);
+    }
+
+    public function SetWallboxChargingAllowed(int $slot, bool $allowed): void
+    {
+        $this->setWallboxBit($slot, 4, !$allowed);
+    }
+
+    private function setWallboxBit(int $slot, int $mask, bool $enabled): void
+    {
+        if ($slot < 0 || $slot > 7) {
+            throw new RuntimeException('Wallbox-Slot muss zwischen 0 und 7 liegen.');
+        }
+        $this->controlDevice(false, 'AllowWallboxControl', function ($socket, int $unit) use ($slot, $mask, $enabled): void {
+            $register = 40088 + $slot;
+            $state = $this->readRegisters($socket, $unit, 2, $register, 1)[0];
+            if (($state & 1) === 0) {
+                throw new RuntimeException('Wallbox-Slot meldet keine verfügbare Wallbox.');
+            }
+            $target = $enabled ? $state | $mask : $state & ~$mask;
+            if ($target === $state) {
+                return;
+            }
+            $payload = pack('nn', $register - 1, $target);
+            $this->writeRegisters($socket, $unit, 3, 6, $payload, $payload);
+            usleep(110000);
+            $actual = $this->readRegisters($socket, $unit, 4, $register, 1)[0];
+            if (($actual & (1 | $mask)) !== ($target & (1 | $mask))) {
+                throw new RuntimeException('Die Wallbox hat die Änderung beim Rücklesen nicht bestätigt.');
+            }
+        });
+    }
+
+    public function SetBatteryPower(bool $secondDevice, int $watts): void
+    {
+        $this->controlDevice($secondDevice, 'AllowBatteryControl', function ($socket, int $unit) use ($watts): void {
+            $limits = $this->readRegisters($socket, $unit, 2, 40202, 4);
+            $charge = $this->signed32($limits, 0);
+            $discharge = $this->signed32($limits, 2);
+            if ($charge < 0 || $discharge > 0 || ($charge === 0 && $discharge === 0)
+                || $watts < $discharge || $watts > $charge) {
+                throw new RuntimeException('Batterieleistung liegt außerhalb der aktuell gemeldeten Grenzen.');
+            }
+            $address = pack('nn', 40197 - 1, 2);
+            $this->writeRegisters($socket, $unit, 3, 16, $address . pack('Cnn', 4, $watts & 0xFFFF, ($watts >> 16) & 0xFFFF), $address);
+        });
+    }
+
+    public function StopBatteryControl(bool $secondDevice): void
+    {
+        $this->controlDevice($secondDevice, 'AllowBatteryControl', function ($socket, int $unit): void {
+            $this->readRegisters($socket, $unit, 2, 40199, 1);
+            $payload = pack('nn', 40199 - 1, 1);
+            $this->writeRegisters($socket, $unit, 3, 6, $payload, $payload);
+        });
+    }
+
+    private function controlDevice(bool $secondDevice, string $permission, callable $command): void
+    {
+        if (!$this->ReadPropertyBoolean('Active') || !$this->ReadPropertyBoolean($permission)) {
+            throw new RuntimeException('Diese Steuerung ist in der Instanz deaktiviert.');
+        }
+        $host = trim($this->ReadPropertyString($secondDevice ? 'SecondHost' : 'Host'));
+        $port = $this->ReadPropertyInteger('Port');
+        $unit = $this->ReadPropertyInteger('Unit');
+        if (!filter_var($host, FILTER_VALIDATE_IP) || $port < 1 || $port > 65535 || $unit < 0 || $unit > 255
+            || ($secondDevice && $host === trim($this->ReadPropertyString('Host')))) {
+            throw new RuntimeException('Eine gültige und eindeutige Zieladresse ist erforderlich.');
+        }
+        $lock = 'E3DCOne.Poll.' . $this->InstanceID;
+        if (!IPS_SemaphoreEnter($lock, 2000)) {
+            throw new RuntimeException('Eine Abfrage oder Steuerung läuft bereits.');
+        }
+        try {
+            $address = str_contains($host, ':') ? '[' . $host . ']' : $host;
+            $socket = @stream_socket_client('tcp://' . $address . ':' . $port, $code, $message, 2.0);
+            if ($socket === false) {
+                throw new RuntimeException('E3/DC-Zielgerät nicht erreichbar.');
+            }
+            try {
+                stream_set_timeout($socket, 2);
+                if ($this->readRegisters($socket, $unit, 1, 40001, 1)[0] !== 0xE3DC) {
+                    throw new RuntimeException('E3/DC Simple Mode wurde am Zielgerät nicht erkannt.');
+                }
+                usleep(110000);
+                $command($socket, $unit);
+            } finally {
+                fclose($socket);
+            }
+        } finally {
+            IPS_SemaphoreLeave($lock);
+        }
     }
 
     private function publishFarmBattery(array $local, ?array $farmBalance, array &$notes): void
@@ -972,11 +1193,12 @@ PHP;
                 throw new RuntimeException('E3/DC Simple Mode wurde am zweiten one nicht erkannt.');
             }
             usleep(110000);
-            $core = $this->readRegisters($socket, $unit, 2, 40068, 18);
+            $transaction = 2;
+            $core = $this->readCore($socket, $unit, $transaction, $notes);
             $energy = [];
             try {
                 usleep(110000);
-                $registers = $this->readRegisters($socket, $unit, 3, 40206, 4);
+                $registers = $this->readRegisters($socket, $unit, $transaction, 40206, 4);
                 $energy = [
                     'Verbleibende Energie (Wh)' => $this->signed32($registers, 0),
                     'Max. speicherbare Energie (Wh)' => $this->signed32($registers, 2)
@@ -984,7 +1206,7 @@ PHP;
             } catch (RuntimeException $error) {
                 $notes['Speicherenergie des zweiten one'] = $error->getMessage();
             }
-            $soc = $core[15];
+            $soc = $core[15] ?? -1;
             $energy = $this->batteryWithFallback($energy, $this->ReadPropertyInteger('SecondCapacityFallbackWh'), $soc);
             return [$this->signed32($core, 0), $this->signed32($core, 2), $soc, $energy];
         } finally {
@@ -1093,7 +1315,7 @@ PHP;
         $this->setGroupedValue('DayPVSource', 'Modbus-Summe');
     }
 
-    private function publishDaily(bool $valid): void
+    private function publishDaily(bool $valid, ?array $core = null): void
     {
         $forecastSource = $this->ReadPropertyInteger('ForecastSource');
         $ownForecast = $this->groupedVariableID('DayForecast');
@@ -1105,13 +1327,16 @@ PHP;
         }
         $this->setGroupedValue('DayForecastAvailable', $forecastAvailable);
 
-        if (trim($this->ReadPropertyString('SecondHost')) === '' && $this->ReadPropertyInteger('SecondOne') === 0) {
-            return;
-        }
+        $single = trim($this->ReadPropertyString('SecondHost')) === '' && $this->ReadPropertyInteger('SecondOne') === 0;
+        $valid = $single ? $core !== null : $valid;
 
         $now = time();
         $midnight = strtotime('today', $now);
         $state = json_decode($this->ReadAttributeString('DailyTotals'), true) ?? [];
+        $topology = $single ? 'single' : 'farm';
+        if (($state['topology'] ?? 'farm') !== $topology) {
+            $state = [];
+        }
         $previousTime = $state['time'] ?? 0;
         $previousPowers = $state['powers'] ?? [];
         $maxGap = 2 * max(5, min(3600, $this->ReadPropertyInteger('Interval'))) + 10;
@@ -1153,6 +1378,24 @@ PHP;
             ];
         }
 
+        if ($single && $core !== null) {
+            $powers = [
+                'DayPV' => $this->getGroupedValue('PV'),
+                'DayBatteryCharge' => $this->getGroupedValue('BatteryChargePower'),
+                'DayBatteryDischarge' => $this->getGroupedValue('BatteryDischargePower'),
+                'DayGridImport' => $this->getGroupedValue('GridImport'),
+                'DayGridExport' => $this->getGroupedValue('GridExport'),
+                'DayHouse' => $this->getGroupedValue('House'),
+                'DayConsumption' => $this->getGroupedValue('House')
+            ];
+            if (isset($core[10])) {
+                $powers['DayWallbox'] = $this->getGroupedValue('WallboxPower');
+            }
+            if ($state['start'] === 0) {
+                $state['start'] = $now;
+            }
+        }
+
         if ($valid && ($state['balanceStart'] ?? 0) === 0) {
             $state['balanceStart'] = $canIntegrate && isset($previousPowers['DayConsumption']) ? max($previousTime, $midnight) : $now;
         }
@@ -1176,6 +1419,7 @@ PHP;
             }
             $this->setGroupedValue($ident, round($total, 3));
         }
+        $state['topology'] = $topology;
         $state['time'] = $now;
         $state['powers'] = $powers;
         $this->WriteAttributeString('DailyTotals', json_encode($state));
@@ -1257,7 +1501,26 @@ PHP;
 
     private function readRegisters($socket, int $unit, int $transaction, int $register, int $count): array
     {
-        $request = pack('nnnCCnn', $transaction, 0, 6, $unit, 3, $register - 1, $count);
+        $body = $this->exchangeModbus($socket, $unit, $transaction, 3, pack('nn', $register - 1, $count), $register);
+        if (ord($body[0]) !== 3 || ord($body[1]) !== $count * 2 || strlen($body) !== 2 + $count * 2) {
+            throw new RuntimeException('Unerwartete Modbus-Registerantwort.');
+        }
+        return array_values(unpack('n*', substr($body, 2)));
+    }
+
+    private function writeRegisters($socket, int $unit, int $transaction, int $function, string $payload, string $expected): void
+    {
+        usleep(110000);
+        $register = unpack('n', $payload)[1] + 1;
+        $response = $this->exchangeModbus($socket, $unit, $transaction, $function, $payload, $register);
+        if ($response !== chr($function) . $expected) {
+            throw new RuntimeException('Unerwartete Modbus-Schreibbestätigung.');
+        }
+    }
+
+    private function exchangeModbus($socket, int $unit, int $transaction, int $function, string $payload, int $register): string
+    {
+        $request = pack('nnnCC', $transaction, 0, strlen($payload) + 2, $unit, $function) . $payload;
         if (@fwrite($socket, $request) !== strlen($request)) {
             throw new RuntimeException('Modbus-Anfrage konnte nicht gesendet werden.');
         }
@@ -1267,13 +1530,10 @@ PHP;
             throw new RuntimeException('Ungültiger Modbus-Antwortkopf.');
         }
         $body = $this->readBytes($socket, $header['length'] - 1);
-        if (ord($body[0]) === 0x83) {
+        if (ord($body[0]) === ($function | 0x80)) {
             throw new RuntimeException('Modbus-Ausnahme ' . ord($body[1]) . ' bei Register ' . $register . '.');
         }
-        if (ord($body[0]) !== 3 || ord($body[1]) !== $count * 2 || strlen($body) !== 2 + $count * 2) {
-            throw new RuntimeException('Unerwartete Modbus-Registerantwort.');
-        }
-        return array_values(unpack('n*', substr($body, 2)));
+        return $body;
     }
 
     private function readBytes($socket, int $length): string

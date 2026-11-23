@@ -1,4 +1,4 @@
-E3DC Farm 0.9.0 für IP-Symcon 9.0
+E3DC Farm 0.9.1 für IP-Symcon 9.0
 
 Installation
 1. Auf dem Rechner, auf dem der IP-Symcon-Dienst läuft, den Ordner
@@ -41,7 +41,7 @@ Anzeigen und Grenzen
   beweisen nicht, dass die betreffende Hardware installiert ist.
 - Autarkie und Eigenverbrauch stehen als separate Werte des one bereit.
   Register 40082 bleibt als Rohwert sichtbar.
-  Batterie- und Wallbox-Steuerung sind noch nicht implementiert.
+  Seit 0.9.1 stehen optionale lokale Steuerbefehle zur Verfügung.
 
 Registerreferenz
 E3/DC Modbus/TCP-Schnittstelle, V2.80, Abschnitte 3.1 und 4.
@@ -224,3 +224,33 @@ Automatisch zugeordnet wird das bestehende one-Farmpaar. Bei anderen
 Kombinationen wird die Liste für die manuelle Zuordnung angezeigt.
 Verfügbare Speicher-, Zähler- und Wallbox-Daten hängen von Modell und
 Firmware ab. Weitere Modelle müssen mit realen Geräten geprüft werden.
+
+Einzelgeräte, Zubehör und Steuerung ab 0.9.1
+Wenn der zusammenhängende Modbus-Block ab 40068 abgelehnt wird, liest
+das Modul die Grundwerte und fragt Zusatzregister separat ab. Die
+Tageswerte eines Einzelgeräts werden aus den Live-Werten seit Beginn
+der Symcon-Erfassung berechnet. Der Gesamtverbrauch eines Einzelgeräts
+entspricht dabei dem vom Gerät gemeldeten Hausverbrauch. Ein direkt
+ausgelesener RSCP-Solartageswert hat weiterhin Vorrang.
+
+Unter „Zubehör“ erscheinen erkannte Wallboxen, Zähler, PV-Strings und
+Wechselrichter. Die Namen werden in der Instanzkonfiguration gesetzt,
+zum Beispiel {"Wallbox0":"Garage","Zaehler4":"Wärmepumpe",
+"String1":"Dach Süd","Wechselrichter0":"Dach Ost"}.
+
+Steuerbefehle zuerst in der Instanzkonfiguration freigeben.
+E3DCF_SetWallboxMode($id, 0, true) schaltet Slot 0 auf Solarbetrieb.
+E3DCF_SetWallboxChargingAllowed($id, 0, false) sperrt das Laden,
+sofern das Wallbox-Modell die Änderung beim Rücklesen bestätigt.
+E3DCF_SetBatteryPower($id, false, 500) fordert einmalig 500 W Ladeleistung
+am Hauptgerät an. Negative Werte fordern Entladeleistung an. Laden kann
+Netzbezug verursachen. Das Modul prüft die aktuell gemeldeten Grenzen.
+Das Gerät kehrt laut Modbus-Dokumentation nach spätestens 30 Sekunden
+ohne weitere Vorgabe zum normalen Betrieb zurück.
+E3DCF_StopBatteryControl($id, false) beendet die Vorgabe sofort.
+Für das zweite Gerät true statt false verwenden. Dazu muss dessen
+IP-Adresse direkt in derselben Instanz hinterlegt sein.
+
+Brovnings Modul liest keine E3/DC-Solarprognose aus. Als Quelle für
+die Prognose kann eine vorhandene numerische Symcon-Variable in kWh
+ausgewählt werden.
