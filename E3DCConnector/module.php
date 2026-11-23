@@ -886,6 +886,7 @@ PHP;
             }
             $farmValid = false;
             $farm = [];
+            $second = [];
             if ($this->isFarmMode()) {
                 $peer = trim($this->ReadPropertyString('SecondHost'));
                 if ($peer === '') {
@@ -906,12 +907,23 @@ PHP;
             $this->publishJson('ReadNotes', $notes);
             $valid = isset($live['PV'], $live['Battery'], $live['House'], $live['Grid']);
             $this->publishDaily($farmValid, $valid ? $this->mergeRscpCore([], $live) : null, isset($farm['WallboxPower']));
-            if ($valid || $farmValid) {
+            if ($valid || $farmValid || $live !== [] || $farm !== [] || $second !== []) {
                 $this->setGroupedValue('LastSuccess', time());
-                $this->setGroupedValue('DataStatus', 'Messwerte über lokales RSCP aktualisiert.');
+            }
+            if ($valid || $farmValid) {
+                $message = $valid ? 'Messwerte über lokales RSCP aktualisiert.'
+                    : 'Farmcontroller liefert Messwerte. Hauptgerät: ' . ($notes['RSCP Hauptgerät'] ?? 'Live-Werte unvollständig.');
+                $this->setGroupedValue('DataStatus', $message);
                 $this->SetStatus(102);
             } else {
-                $this->setGroupedValue('DataStatus', $notes['RSCP Hauptgerät'] ?? 'Keine vollständige RSCP-Live-Antwort.');
+                $message = 'Hauptgerät: ' . ($notes['RSCP Hauptgerät'] ?? 'Keine vollständige RSCP-Live-Antwort.');
+                if (isset($notes['RSCP Farmcontroller'])) {
+                    $message .= ' Farmcontroller: ' . $notes['RSCP Farmcontroller'];
+                }
+                if ($second !== []) {
+                    $message .= ' Werte des zweiten Geräts wurden aktualisiert.';
+                }
+                $this->setGroupedValue('DataStatus', $message);
                 $this->SetStatus(201);
             }
         } finally {
@@ -968,7 +980,7 @@ PHP;
         try {
             return (new \E3DCConnector\FarmRscp($key))->readLiveValues($host, $this->ReadPropertyInteger('FarmRscpPort'), $user, $password);
         } catch (RuntimeException $error) {
-            $notes['RSCP Farmcontroller'] = $error->getMessage();
+            $notes['RSCP Farmcontroller'] = $host . ':' . $this->ReadPropertyInteger('FarmRscpPort') . ' – ' . $error->getMessage();
             return [];
         }
     }
@@ -1001,8 +1013,10 @@ PHP;
     private function readLocalRscpDevice(string $host, bool $second, array &$notes): array
     {
         $status = $second ? 'SecondRscpCapacityStatus' : 'RscpCapacityStatus';
+        $label = $second ? 'RSCP zweites Farmgerät' : 'RSCP Hauptgerät';
         if (!$this->ReadPropertyBoolean('ReadRscpSolar')) {
-            $this->setGroupedValue($status, 'Lokales RSCP deaktiviert.');
+            $notes[$label] = 'Lokales RSCP deaktiviert.';
+            $this->setGroupedValue($status, $notes[$label]);
             return [];
         }
         $port = $this->ReadPropertyInteger('DeviceRscpPort');
@@ -1010,19 +1024,27 @@ PHP;
         $password = $this->ReadPropertyString('FarmRscpPassword');
         $key = $this->ReadPropertyString('FarmRscpKey');
         if ($port < 1 || $port > 65535 || $user === '' || $password === '' || $key === '') {
-            $this->setGroupedValue($status, 'RSCP-Port und Zugangsdaten prüfen.');
+            $notes[$label] = 'RSCP-Port und Zugangsdaten prüfen.';
+            $this->setGroupedValue($status, $notes[$label]);
             return [];
         }
-        $label = $second ? 'RSCP zweites Farmgerät' : 'RSCP Hauptgerät';
         try {
             $data = (new \E3DCConnector\FarmRscp($key))->readDevice($host, $port, $user, $password);
         } catch (RuntimeException $error) {
-            $notes[$label] = $error->getMessage();
-            $this->setGroupedValue($status, $error->getMessage());
+            $notes[$label] = $host . ':' . $port . ' – ' . $error->getMessage();
+            $this->setGroupedValue($status, $notes[$label]);
             return [];
         }
         $live = $data['live'];
-        $notes[$label] = $live === [] ? ($data['liveError'] ?? 'Keine Live-Messwerte geliefert.') : 'Live-Werte über RSCP: ' . implode(', ', array_keys($live));
+        $missing = array_diff(['PV', 'Battery', 'House', 'Grid'], array_keys($live));
+        $message = $live === [] ? 'Keine Live-Messwerte.' : 'Live-Werte: ' . implode(', ', array_keys($live)) . '.';
+        if ($missing !== []) {
+            $message .= ' Fehlend: ' . implode(', ', $missing) . '.';
+            if (($data['liveError'] ?? '') !== '') {
+                $message .= ' ' . $data['liveError'];
+            }
+        }
+        $notes[$label] = $host . ':' . $port . ' – ' . $message;
         $capacity = $data['specification']['Kapazität (Wh)'] ?? null;
         $valid = $capacity !== null && $capacity > 0;
         $this->setGroupedValue($second ? 'SecondRscpCapacityValid' : 'RscpCapacityValid', $valid);

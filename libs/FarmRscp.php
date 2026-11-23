@@ -82,51 +82,84 @@ final class FarmRscp
         }
     }
 
+    private const LIVE_TAGS = [1 => 'PV', 2 => 'Battery', 3 => 'House', 4 => 'Grid', 5 => 'External',
+        8 => 'SOC', 31 => 'WallboxPower', 32 => 'WallboxSolar'];
+
     public function readDevice(string $host, int $port, string $user, string $password, bool $includeSpecification = true): array
     {
         $socket = $this->openSession($host, $port, $user, $password);
+        $session = $this;
+        $live = [];
+        $liveError = '';
         try {
-            $liveTags = [1 => 'PV', 2 => 'Battery', 3 => 'House', 4 => 'Grid', 5 => 'External',
-                8 => 'SOC', 31 => 'WallboxPower', 32 => 'WallboxSolar'];
             $request = '';
-            foreach ($liveTags as $offset => $name) {
+            foreach (self::LIVE_TAGS as $offset => $name) {
                 $request .= self::element(0x01000000 + $offset, 0, '');
             }
             try {
-                $answer = $this->exchange($socket, $request);
+                $live = self::decodeLiveValues($this->exchange($socket, $request));
             } catch (RuntimeException $error) {
-                if (!$includeSpecification) {
-                    throw $error;
-                }
-                // The device may reject bundled live requests but still support BAT_REQ_SPECIFICATION.
+                $liveError = $error->getMessage();
+            }
+
+            if (!isset($live['PV'], $live['Battery'], $live['House'], $live['Grid'])) {
+                // Some endpoints close the connection or send separate frames for a bundled request.
+                // Reconnect first so unread bundled responses cannot be mistaken for single responses.
                 fclose($socket);
                 $socket = null;
                 $session = new self($this->key);
-                $specificationSocket = $session->openSession($host, $port, $user, $password);
                 try {
-                    $battery = $session->readSpecification($specificationSocket);
-                    return ['live' => [], 'liveError' => $error->getMessage()] + $battery;
-                } finally {
-                    fclose($specificationSocket);
+                    $socket = $session->openSession($host, $port, $user, $password);
+                    foreach ([1, 2, 3, 4, 8] as $offset) {
+                        if (isset($live[self::LIVE_TAGS[$offset]])) {
+                            continue;
+                        }
+                        $reply = $session->exchange($socket, self::element(0x01000000 + $offset, 0, ''));
+                        $live += self::decodeLiveValues($reply);
+                    }
+                } catch (RuntimeException $error) {
+                    $liveError = $error->getMessage();
+                    if ($socket !== null) {
+                        fclose($socket);
+                        $socket = null;
+                    }
                 }
-            }
-            $live = [];
-            foreach ($liveTags as $offset => $name) {
-                $element = $answer[0x01800000 + $offset] ?? null;
-                $value = $element === null ? null : self::decodeEnergy($element);
-                if ($value === null || $value < -2147483648 || $value > 2147483647
-                    || ($name === 'SOC' && ($value < 0 || $value > 100))) {
-                    continue;
-                }
-                $live[$name] = (int) round($value);
             }
 
-            return $includeSpecification ? ['live' => $live] + $this->readSpecification($socket) : $live;
+            if (!$includeSpecification) {
+                if ($live === [] && $liveError !== '') {
+                    throw new RuntimeException($liveError);
+                }
+                return $live;
+            }
+            if ($socket === null) {
+                $session = new self($this->key);
+                try {
+                    $socket = $session->openSession($host, $port, $user, $password);
+                } catch (RuntimeException $error) {
+                    return ['live' => $live, 'liveError' => $liveError, 'specification' => [], 'batteryError' => $error->getMessage()];
+                }
+            }
+            return ['live' => $live, 'liveError' => $liveError] + $session->readSpecification($socket);
         } finally {
             if ($socket !== null) {
                 fclose($socket);
             }
         }
+    }
+
+    private static function decodeLiveValues(array $answer): array
+    {
+        $live = [];
+        foreach (self::LIVE_TAGS as $offset => $name) {
+            $element = $answer[0x01800000 + $offset] ?? null;
+            $value = $element === null ? null : self::decodeEnergy($element);
+            if ($value !== null && $value >= -2147483648 && $value <= 2147483647
+                && ($name !== 'SOC' || ($value >= 0 && $value <= 100))) {
+                $live[$name] = (int) round($value);
+            }
+        }
+        return $live;
     }
 
     public function readLiveValues(string $host, int $port, string $user, string $password): array
