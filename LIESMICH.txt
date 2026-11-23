@@ -324,3 +324,11 @@ ergänzt fehlende Felder und liefert weiterhin Zähler- und Gerätedetails.
 Die Batterie-Spezifikation für Index 0 steht pro Gerät separat in kWh.
 Sie wird nicht als nutzbare Kapazität behandelt oder ungeprüft zu
 einem Farmwert addiert. Modbus bleibt für LAN-Suche und Steuerung aktiv.
+
+
+Variablenstruktur
+Farmbilanz, Farm-Batteriespeicher, Messwerte und Speicher je Gerät,
+Wallbox sowie Tagesenergie haben eigene Kategorien. Die nutzbare
+Kapazität und die spezifizierte RSCP-Kapazität werden getrennt geführt.
+Beim Übernehmen werden vorhandene Modulvariablen in die passenden
+Kategorien verschoben und umbenannt. Ihre Objekt-IDs bleiben erhalten.

@@ -17,7 +17,7 @@ class E3DCConnector extends IPSModule
         'BatteryDetails' => 'Batteriegrenzen und Speicherenergie',
         'RemoteStatus' => 'Status der Fernsteuerung',
         'WallboxDetails' => 'Wallbox-Slots (Details)',
-        'ReadNotes' => 'Nicht verfügbare Daten'
+        'ReadNotes' => 'Hinweise zu den Datenquellen'
     ];
 
     private const RSCP_ENERGY = [
@@ -44,11 +44,11 @@ class E3DCConnector extends IPSModule
     ];
 
     private const POWER = [
-        'PV' => 'PV-Leistung (W)',
+        'PV' => 'PV-Erzeugung (W)',
         'Battery' => 'Batterieleistung (W)',
-        'House' => 'Hausverbrauch laut one (W)',
+        'House' => 'Hausverbrauch (W)',
         'Grid' => 'Netzleistung (W)',
-        'External' => 'Weitere Einspeiser (W)',
+        'External' => 'Externe Erzeugung (W)',
         'WallboxPower' => 'Wallbox-Leistung (W)',
         'WallboxSolar' => 'Wallbox-Solarleistung (W)'
     ];
@@ -103,9 +103,9 @@ class E3DCConnector extends IPSModule
         }
         $this->maintainGroupedVariable('SOC', 'Batterieladezustand (%)', '', VARIABLETYPE_INTEGER);
         $this->maintainGroupedVariable('EMS', 'EMS-Status (Rohwert)', '', VARIABLETYPE_INTEGER);
-        $this->maintainGroupedVariable('Wallboxes', 'Wallbox-Erkennung', '', VARIABLETYPE_STRING);
+        $this->maintainGroupedVariable('Wallboxes', 'Erkannte Wallboxen', '', VARIABLETYPE_STRING);
         $this->maintainGroupedVariable('LastSuccess', 'Letzte erfolgreiche Abfrage', '~UnixTimestamp', VARIABLETYPE_INTEGER);
-        $this->maintainGroupedVariable('DataStatus', 'Datenstatus', '', VARIABLETYPE_STRING);
+        $this->maintainGroupedVariable('DataStatus', 'Status der Messwertabfrage', '', VARIABLETYPE_STRING);
         $this->maintainGroupedVariable('OperatingModeStatus', 'Betriebsart', '', VARIABLETYPE_STRING);
         $this->maintainGroupedVariable('Manufacturer', 'Hersteller', '', VARIABLETYPE_STRING);
         $this->maintainGroupedVariable('Model', 'Modell', '', VARIABLETYPE_STRING);
@@ -116,54 +116,54 @@ class E3DCConnector extends IPSModule
         $this->maintainGroupedVariable('Emergency', 'Notstromstatus (Rohwert)', '', VARIABLETYPE_INTEGER);
         $this->maintainGroupedVariable('EfficiencyRaw', 'Autarkie und Eigenverbrauch (Register 40082)', '', VARIABLETYPE_STRING);
         $this->maintainGroupedVariable('EMSFlags', 'EMS-Status (Details)', '', VARIABLETYPE_STRING);
-        $this->maintainGroupedVariable('FarmConsumption', 'Farm-Gesamtverbrauch (W)', '', VARIABLETYPE_INTEGER);
+        $this->maintainGroupedVariable('FarmConsumption', 'Gesamtverbrauch (W)', '', VARIABLETYPE_INTEGER);
         $this->maintainGroupedVariable('AdditionalConsumerValid', 'Zusatzverbrauch aktuell', '', VARIABLETYPE_BOOLEAN);
         $this->maintainGroupedVariable('HeatPumpConsumption', 'Zusatzverbrauch (W)', '', VARIABLETYPE_INTEGER);
         $this->maintainGroupedVariable('FarmHouseConsumption', 'Hausverbrauch ohne Zusatzverbrauch (W)', '', VARIABLETYPE_INTEGER);
-        $this->maintainGroupedVariable('FarmMeterPower', 'Farmzähler – vorzeichenbehaftete Leistung (W)', '', VARIABLETYPE_INTEGER);
+        $this->maintainGroupedVariable('FarmMeterPower', 'Leistung am Farmzähler (W)', '', VARIABLETYPE_INTEGER);
         $this->maintainGroupedVariable('RscpDayEnergy', 'RSCP-Tagessummen (Wh)', '', VARIABLETYPE_STRING);
         $this->maintainGroupedVariable('DayPVEstimate', 'Solarproduktion heute – Modbus-Summe (kWh)', '', VARIABLETYPE_FLOAT);
         $this->maintainGroupedVariable('DayPVSource', 'Datenquelle Solarproduktion', '', VARIABLETYPE_STRING);
-        $this->maintainGroupedVariable('RscpSolarStatus', 'RSCP-Tagesertrag – Status', '', VARIABLETYPE_STRING);
+        $this->maintainGroupedVariable('RscpSolarStatus', 'Status der RSCP-Tagesabfrage', '', VARIABLETYPE_STRING);
         $this->maintainGroupedVariable('DayBalanceStart', 'Verbrauchs- und Netzbilanz erfasst seit', '~UnixTimestamp', VARIABLETYPE_INTEGER);
-        $this->maintainGroupedVariable('FarmConsumptionValid', 'Farm-Verbrauchswerte aktuell', '', VARIABLETYPE_BOOLEAN);
-        $this->maintainGroupedVariable('FarmBatterySOC', 'Farm-Batterieladezustand (%)', '', VARIABLETYPE_FLOAT);
-        $this->maintainGroupedVariable('FarmBatteryPower', 'Farm-Batterieleistung (W)', '', VARIABLETYPE_INTEGER);
-        $this->maintainGroupedVariable('FarmBatteryValid', 'Farm-Batteriewerte aktuell', '', VARIABLETYPE_BOOLEAN);
-        $this->maintainGroupedVariable('RscpCapacity', 'Spezifizierte Speicherkapazität per RSCP (kWh)', '', VARIABLETYPE_FLOAT);
-        $this->maintainGroupedVariable('RscpCapacityStatus', 'RSCP-Speicherkapazität – Status', '', VARIABLETYPE_STRING);
-        $this->maintainGroupedVariable('RscpCapacityValid', 'RSCP-Speicherkapazität aktuell', '', VARIABLETYPE_BOOLEAN);
-        $this->maintainGroupedVariable('SecondRscpCapacity', 'Spezifizierte Speicherkapazität per RSCP (kWh)', '', VARIABLETYPE_FLOAT);
-        $this->maintainGroupedVariable('SecondRscpCapacityStatus', 'RSCP-Speicherkapazität – Status', '', VARIABLETYPE_STRING);
-        $this->maintainGroupedVariable('SecondRscpCapacityValid', 'RSCP-Speicherkapazität aktuell', '', VARIABLETYPE_BOOLEAN);
-        $this->maintainGroupedVariable('BatteryCapacity', 'Speicherkapazität des one (kWh)', '', VARIABLETYPE_FLOAT);
-        $this->maintainGroupedVariable('BatteryEnergy', 'Verbleibende Speicherenergie des one (kWh)', '', VARIABLETYPE_FLOAT);
+        $this->maintainGroupedVariable('FarmConsumptionValid', 'Verbrauchsbilanz aktuell', '', VARIABLETYPE_BOOLEAN);
+        $this->maintainGroupedVariable('FarmBatterySOC', 'Ladezustand gesamt (%)', '', VARIABLETYPE_FLOAT);
+        $this->maintainGroupedVariable('FarmBatteryPower', 'Batterieleistung gesamt (W)', '', VARIABLETYPE_INTEGER);
+        $this->maintainGroupedVariable('FarmBatteryValid', 'Speicherwerte aktuell', '', VARIABLETYPE_BOOLEAN);
+        $this->maintainGroupedVariable('RscpCapacity', 'Spezifizierte Kapazität (RSCP, kWh)', '', VARIABLETYPE_FLOAT);
+        $this->maintainGroupedVariable('RscpCapacityStatus', 'Status der Kapazitätsabfrage', '', VARIABLETYPE_STRING);
+        $this->maintainGroupedVariable('RscpCapacityValid', 'Spezifizierte Kapazität aktuell', '', VARIABLETYPE_BOOLEAN);
+        $this->maintainGroupedVariable('SecondRscpCapacity', 'Spezifizierte Kapazität (RSCP, kWh)', '', VARIABLETYPE_FLOAT);
+        $this->maintainGroupedVariable('SecondRscpCapacityStatus', 'Status der Kapazitätsabfrage', '', VARIABLETYPE_STRING);
+        $this->maintainGroupedVariable('SecondRscpCapacityValid', 'Spezifizierte Kapazität aktuell', '', VARIABLETYPE_BOOLEAN);
+        $this->maintainGroupedVariable('BatteryCapacity', 'Nutzbare Kapazität (kWh)', '', VARIABLETYPE_FLOAT);
+        $this->maintainGroupedVariable('BatteryEnergy', 'Verbleibende Energie (kWh)', '', VARIABLETYPE_FLOAT);
         $this->maintainGroupedVariable('BatteryEnergyAboveReserve', 'Speicherenergie oberhalb der Reserve (kWh)', '', VARIABLETYPE_FLOAT);
-        $this->maintainGroupedVariable('BatteryEnergyValid', 'Speicherenergie des one aktuell', '', VARIABLETYPE_BOOLEAN);
-        $this->maintainGroupedVariable('FarmBatteryCapacity', 'Farm-Speicherkapazität (kWh)', '', VARIABLETYPE_FLOAT);
-        $this->maintainGroupedVariable('FarmBatteryEnergy', 'Verbleibende Farm-Speicherenergie (kWh)', '', VARIABLETYPE_FLOAT);
-        $this->maintainGroupedVariable('FarmPV', 'Farm-PV-Leistung (W)', '', VARIABLETYPE_INTEGER);
-        $this->maintainGroupedVariable('FarmGrid', 'Farm-Netzleistung (berechnet, W)', '', VARIABLETYPE_INTEGER);
-        $this->maintainGroupedVariable('FarmGridImport', 'Farm-Netzbezug (berechnet, W)', '', VARIABLETYPE_INTEGER);
-        $this->maintainGroupedVariable('FarmGridExport', 'Farm-Einspeisung (berechnet, W)', '', VARIABLETYPE_INTEGER);
-        $this->maintainGroupedVariable('FarmAutarky', 'Farm-Momentanautarkie (berechnet, %)', '', VARIABLETYPE_FLOAT);
-        $this->maintainGroupedVariable('FarmWallboxPower', 'Farm-Wallbox-Leistung (W)', '', VARIABLETYPE_INTEGER);
-        $this->maintainGroupedVariable('FarmPowerValid', 'Farm-Leistungswerte aktuell', '', VARIABLETYPE_BOOLEAN);
+        $this->maintainGroupedVariable('BatteryEnergyValid', 'Speicherenergie aktuell', '', VARIABLETYPE_BOOLEAN);
+        $this->maintainGroupedVariable('FarmBatteryCapacity', 'Nutzbare Kapazität gesamt (kWh)', '', VARIABLETYPE_FLOAT);
+        $this->maintainGroupedVariable('FarmBatteryEnergy', 'Verbleibende Energie gesamt (kWh)', '', VARIABLETYPE_FLOAT);
+        $this->maintainGroupedVariable('FarmPV', 'PV-Erzeugung gesamt (W)', '', VARIABLETYPE_INTEGER);
+        $this->maintainGroupedVariable('FarmGrid', 'Netzleistung (W)', '', VARIABLETYPE_INTEGER);
+        $this->maintainGroupedVariable('FarmGridImport', 'Netzbezug (W)', '', VARIABLETYPE_INTEGER);
+        $this->maintainGroupedVariable('FarmGridExport', 'Netzeinspeisung (W)', '', VARIABLETYPE_INTEGER);
+        $this->maintainGroupedVariable('FarmAutarky', 'Autarkie aktuell (%)', '', VARIABLETYPE_FLOAT);
+        $this->maintainGroupedVariable('FarmWallboxPower', 'Wallbox-Leistung gesamt (W)', '', VARIABLETYPE_INTEGER);
+        $this->maintainGroupedVariable('FarmPowerValid', 'Leistungsbilanz aktuell', '', VARIABLETYPE_BOOLEAN);
         $this->maintainGroupedVariable('DayForecast', 'Solarprognose heute (kWh)', '', VARIABLETYPE_FLOAT);
         $this->maintainGroupedVariable('DayForecastAvailable', 'Solarprognose verfügbar', '', VARIABLETYPE_BOOLEAN);
         $this->maintainGroupedVariable('DayStart', 'Tageserfassung seit', '~UnixTimestamp', VARIABLETYPE_INTEGER);
-        $this->maintainGroupedVariable('SecondPV', 'Zweiter one PV-Leistung (W)', '', VARIABLETYPE_INTEGER);
-        $this->maintainGroupedVariable('SecondBattery', 'Zweiter one Batterieleistung (W)', '', VARIABLETYPE_INTEGER);
-        $this->maintainGroupedVariable('SecondSOC', 'Zweiter one Batterieladezustand (%)', '', VARIABLETYPE_INTEGER);
-        $this->maintainGroupedVariable('SecondCapacity', 'Zweiter one Speicherkapazität (kWh)', '', VARIABLETYPE_FLOAT);
-        $this->maintainGroupedVariable('SecondOneValid', 'Zweiter one erreichbar', '', VARIABLETYPE_BOOLEAN);
+        $this->maintainGroupedVariable('SecondPV', 'PV-Erzeugung (W)', '', VARIABLETYPE_INTEGER);
+        $this->maintainGroupedVariable('SecondBattery', 'Batterieleistung (W)', '', VARIABLETYPE_INTEGER);
+        $this->maintainGroupedVariable('SecondSOC', 'Batterieladezustand (%)', '', VARIABLETYPE_INTEGER);
+        $this->maintainGroupedVariable('SecondCapacity', 'Nutzbare Kapazität (kWh)', '', VARIABLETYPE_FLOAT);
+        $this->maintainGroupedVariable('SecondOneValid', 'Messwerte des zweiten Geräts aktuell', '', VARIABLETYPE_BOOLEAN);
         $this->maintainGroupedVariable('LanSetupStatus', 'LAN-Einrichtung', '', VARIABLETYPE_STRING);
-        $this->maintainGroupedVariable('BatteryChargePower', 'Ladeleistung des one (W)', '', VARIABLETYPE_INTEGER);
-        $this->maintainGroupedVariable('BatteryDischargePower', 'Entladeleistung des one (W)', '', VARIABLETYPE_INTEGER);
-        $this->maintainGroupedVariable('GridImport', 'Netzbezug laut one (W)', '', VARIABLETYPE_INTEGER);
-        $this->maintainGroupedVariable('GridExport', 'Netzeinspeisung laut one (W)', '', VARIABLETYPE_INTEGER);
-        $this->maintainGroupedVariable('FarmBatteryChargePower', 'Farm-Batterieladeleistung (W)', '', VARIABLETYPE_INTEGER);
-        $this->maintainGroupedVariable('FarmBatteryDischargePower', 'Farm-Batterieentladeleistung (W)', '', VARIABLETYPE_INTEGER);
+        $this->maintainGroupedVariable('BatteryChargePower', 'Ladeleistung (W)', '', VARIABLETYPE_INTEGER);
+        $this->maintainGroupedVariable('BatteryDischargePower', 'Entladeleistung (W)', '', VARIABLETYPE_INTEGER);
+        $this->maintainGroupedVariable('GridImport', 'Netzbezug (W)', '', VARIABLETYPE_INTEGER);
+        $this->maintainGroupedVariable('GridExport', 'Netzeinspeisung (W)', '', VARIABLETYPE_INTEGER);
+        $this->maintainGroupedVariable('FarmBatteryChargePower', 'Ladeleistung gesamt (W)', '', VARIABLETYPE_INTEGER);
+        $this->maintainGroupedVariable('FarmBatteryDischargePower', 'Entladeleistung gesamt (W)', '', VARIABLETYPE_INTEGER);
         $this->maintainGroupedVariable('DetectedFarmDevices', 'Zähler- und Wallbox-Zuordnung', '', VARIABLETYPE_STRING);
         $this->maintainGroupedVariable('SGReadyState', 'SG Ready (Statuscode)', '', VARIABLETYPE_INTEGER);
         $this->maintainGroupedVariable('SGReadyValid', 'SG-Ready-Status aktuell', '', VARIABLETYPE_BOOLEAN);
@@ -174,8 +174,8 @@ class E3DCConnector extends IPSModule
         $this->maintainGroupedVariable('WallboxVehicleConnected', 'Fahrzeug angeschlossen', '', VARIABLETYPE_BOOLEAN);
         $this->maintainGroupedVariable('WallboxPhaseMode', 'Wallbox-Phasenmodus', '', VARIABLETYPE_INTEGER);
         $this->maintainGroupedVariable('EmergencyState', 'Notstromstatus', '', VARIABLETYPE_STRING);
-        $this->maintainGroupedVariable('OneAutarky', 'Autarkie laut one (%)', '', VARIABLETYPE_INTEGER);
-        $this->maintainGroupedVariable('OneSelfConsumption', 'Eigenverbrauch laut one (%)', '', VARIABLETYPE_INTEGER);
+        $this->maintainGroupedVariable('OneAutarky', 'Autarkie (%)', '', VARIABLETYPE_INTEGER);
+        $this->maintainGroupedVariable('OneSelfConsumption', 'Eigenverbrauch (%)', '', VARIABLETYPE_INTEGER);
         $this->maintainGroupedVariable('OneEfficiencyValid', 'Autarkie und Eigenverbrauch aktuell', '', VARIABLETYPE_BOOLEAN);
         foreach (self::DAILY as $ident => $label) {
             $this->maintainGroupedVariable($ident, $label, '', VARIABLETYPE_FLOAT);
@@ -239,39 +239,51 @@ class E3DCConnector extends IPSModule
     }
 
     private const GROUPS = [
-            'Farm' => ['Farm – Gesamtanlage', [
-                'FarmPV', 'FarmGrid', 'FarmGridImport', 'FarmGridExport', 'FarmConsumption',
-                'FarmHouseConsumption', 'HeatPumpConsumption', 'AdditionalConsumerValid', 'FarmAutarky',
-                'FarmWallboxPower', 'FarmPowerValid', 'FarmConsumptionValid', 'FarmMeterPower',
-                'FarmBatterySOC', 'FarmBatteryPower', 'FarmBatteryChargePower', 'FarmBatteryDischargePower', 'FarmBatteryCapacity', 'FarmBatteryEnergy', 'FarmBatteryValid'
-            ]],
-            'Storage' => ['Batterie und Speicher', [
-                'SOC', 'Battery',
-                'BatteryChargePower', 'BatteryDischargePower', 'BatteryCapacity', 'BatteryEnergy',
-                'BatteryEnergyValid', 'BatteryEnergyAboveReserve', 'BatteryDetails', 'RscpCapacity', 'RscpCapacityValid', 'RscpCapacityStatus'
-            ]],
-            'Wallbox' => ['Wallbox – Übersicht', [
-                'WallboxAvailable', 'WallboxPower', 'WallboxSolar', 'WallboxCharging',
-                'WallboxChargeAllowed', 'WallboxSolarMode', 'WallboxPhaseMode',
-                'WallboxVehicleConnected', 'Wallboxes', 'WallboxDetails'
-            ]],
-            'Daily' => ['Tageswerte und Prognose', [
-                'DayForecast', 'DayForecastAvailable', 'DayStart', 'DayBalanceStart', 'DayPVEstimate', 'DayPVSource', 'RscpSolarStatus', 'RscpDayEnergy'
-            ]],
-            'Master' => ['Farmmaster', [
-                'PV', 'House', 'Grid', 'GridImport', 'GridExport', 'External',
-                'OneAutarky', 'OneSelfConsumption', 'OneEfficiencyValid',
-                'Manufacturer', 'Model', 'Serial', 'Firmware', 'ModbusVersion'
-            ]],
-            'Second' => ['Weiteres Farmgerät', [
-                'SecondOneValid', 'SecondPV', 'SecondBattery', 'SecondSOC', 'SecondCapacity', 'SecondRscpCapacity', 'SecondRscpCapacityValid', 'SecondRscpCapacityStatus'
-            ]],
-            'Diagnostics' => ['Diagnose und Status', [
-                'OperatingModeStatus', 'DataStatus', 'LastSuccess', 'LanSetupStatus', 'ReadNotes', 'DetectedFarmDevices', 'RegisterCount',
-                'PowerMeters', 'DCStrings', 'Inverters', 'SGReadyState', 'SGReadyValid',
-                'EmergencyState', 'Emergency', 'EMS', 'EMSFlags', 'EfficiencyRaw', 'RemoteStatus'
-            ]]
-        ];
+        'Farm' => ['Farm – Leistung und Verbrauch', [
+            'FarmPV', 'FarmConsumption', 'FarmHouseConsumption', 'HeatPumpConsumption', 'AdditionalConsumerValid',
+            'FarmGrid', 'FarmGridImport', 'FarmGridExport', 'FarmAutarky', 'FarmWallboxPower',
+            'FarmPowerValid', 'FarmConsumptionValid', 'FarmMeterPower'
+        ]],
+        'FarmStorage' => ['Farm – Batteriespeicher', [
+            'FarmBatterySOC', 'FarmBatteryPower', 'FarmBatteryChargePower', 'FarmBatteryDischargePower',
+            'FarmBatteryCapacity', 'FarmBatteryEnergy', 'FarmBatteryValid'
+        ]],
+        'Master' => ['Hauptgerät – Leistung und Verbrauch', [
+            'PV', 'House', 'Grid', 'GridImport', 'GridExport', 'External',
+            'OneAutarky', 'OneSelfConsumption', 'OneEfficiencyValid'
+        ]],
+        'Storage' => ['Hauptgerät – Batteriespeicher', [
+            'SOC', 'Battery', 'BatteryChargePower', 'BatteryDischargePower', 'BatteryCapacity',
+            'BatteryEnergy', 'BatteryEnergyValid', 'BatteryEnergyAboveReserve', 'RscpCapacity',
+            'RscpCapacityValid', 'RscpCapacityStatus', 'BatteryDetails'
+        ]],
+        'Second' => ['Zweites Farmgerät – Messwerte', [
+            'SecondPV', 'SecondOneValid'
+        ]],
+        'SecondStorage' => ['Zweites Farmgerät – Batteriespeicher', [
+            'SecondSOC', 'SecondBattery', 'SecondCapacity', 'SecondRscpCapacity',
+            'SecondRscpCapacityValid', 'SecondRscpCapacityStatus'
+        ]],
+        'Wallbox' => ['Wallbox – Betrieb und Leistung', [
+            'WallboxAvailable', 'WallboxSolarMode', 'WallboxChargeAllowed', 'WallboxCharging',
+            'WallboxVehicleConnected', 'WallboxPhaseMode', 'WallboxPower', 'WallboxSolar',
+            'Wallboxes', 'WallboxDetails'
+        ]],
+        'Daily' => ['Energie – Tageswerte und Prognose', [
+            'DayForecast', 'DayForecastAvailable', 'DayStart', 'DayBalanceStart',
+            'DayPVEstimate', 'DayPVSource', 'RscpSolarStatus', 'RscpDayEnergy'
+        ]],
+        'Identity' => ['Hauptgerät – Geräteinformationen', [
+            'Manufacturer', 'Model', 'Serial', 'Firmware', 'ModbusVersion', 'RegisterCount'
+        ]],
+        'Diagnostics' => ['Verbindung und Diagnose', [
+            'OperatingModeStatus', 'DataStatus', 'LastSuccess', 'LanSetupStatus', 'ReadNotes', 'DetectedFarmDevices',
+            'PowerMeters', 'DCStrings', 'Inverters', 'SGReadyState', 'SGReadyValid',
+            'EmergencyState', 'Emergency', 'EMS', 'EMSFlags', 'EfficiencyRaw', 'RemoteStatus'
+        ]]
+    ];
+
+    private const FARM_GROUPS = ['Farm', 'FarmStorage', 'Second', 'SecondStorage'];
 
     private function variableLocation(string $ident): array
     {
@@ -295,7 +307,7 @@ class E3DCConnector extends IPSModule
         if (!filter_var($this->ReadPropertyString('Host'), FILTER_VALIDATE_IP)) {
             return false;
         }
-        return $this->isFarmMode() || (!in_array($groupIdent, ['E3DCGroupFarm', 'E3DCGroupSecond'], true) && $ident !== 'DayHeatPump');
+        return $this->isFarmMode() || (!in_array(substr($groupIdent, 9), self::FARM_GROUPS, true) && $ident !== 'DayHeatPump');
     }
 
     private function maintainGroupedVariable(string $ident, string $name, string $profile, int $type): void
@@ -318,21 +330,10 @@ class E3DCConnector extends IPSModule
 
         $existing = @IPS_GetObjectIDByIdent($ident, $category);
         if ($existing !== false && IPS_VariableExists($existing)) {
+            $this->updateVariablePresentation($existing, $ident, $name, $position);
             return;
         }
-        $original = @IPS_GetObjectIDByIdent($ident, $this->InstanceID);
-        if ($original !== false && !IPS_VariableExists($original)) {
-            return;
-        }
-        if ($original === false && $groupIdent === 'E3DCGroupFarm') {
-            $storage = @IPS_GetObjectIDByIdent('E3DCGroupStorage', $this->InstanceID);
-            if ($storage !== false && IPS_CategoryExists($storage)) {
-                $previous = @IPS_GetObjectIDByIdent($ident, $storage);
-                if ($previous !== false && IPS_VariableExists($previous)) {
-                    $original = $previous;
-                }
-            }
-        }
+        $original = $this->findGroupedVariable($ident, $this->InstanceID);
         if ($existing !== false) {
             // Only remove links created by the previous layout for this original variable.
             if ($original === false || !IPS_LinkExists($existing)
@@ -342,7 +343,7 @@ class E3DCConnector extends IPSModule
         }
         if ($original !== false) {
             if (IPS_SetParent($original, $category)) {
-                IPS_SetPosition($original, $position);
+                $this->updateVariablePresentation($original, $ident, $name, $position);
                 if ($existing !== false) {
                     IPS_DeleteLink($existing);
                 }
@@ -362,6 +363,16 @@ class E3DCConnector extends IPSModule
         }
     }
 
+    private function updateVariablePresentation(int $id, string $ident, string $name, int $position): void
+    {
+        // The configured name of the optional consumer is managed after meter detection.
+        if (!in_array($ident, ['HeatPumpConsumption', 'FarmHouseConsumption', 'DayHeatPump', 'DayHouse'], true)
+            && IPS_GetName($id) !== $name) {
+            IPS_SetName($id, $name);
+        }
+        IPS_SetPosition($id, $position);
+    }
+
     private function findGroupedVariable(string $ident, int $instance): int|false
     {
         [$groupIdent] = $this->variableLocation($ident);
@@ -373,7 +384,21 @@ class E3DCConnector extends IPSModule
             }
         }
         $variable = @IPS_GetObjectIDByIdent($ident, $instance);
-        return $variable !== false && IPS_VariableExists($variable) ? $variable : false;
+        if ($variable !== false && IPS_VariableExists($variable)) {
+            return $variable;
+        }
+        // Earlier releases may have placed the variable in another module category.
+        foreach (array_keys(self::GROUPS) as $group) {
+            $previous = @IPS_GetObjectIDByIdent('E3DCGroup' . $group, $instance);
+            if ($previous === false || $previous === $category || !IPS_CategoryExists($previous)) {
+                continue;
+            }
+            $variable = @IPS_GetObjectIDByIdent($ident, $previous);
+            if ($variable !== false && IPS_VariableExists($variable)) {
+                return $variable;
+            }
+        }
+        return false;
     }
 
     private function groupedVariableID(string $ident): int
@@ -422,15 +447,15 @@ class E3DCConnector extends IPSModule
             $status .= ' – weiteres Farmgerät fehlt';
         }
         $this->setGroupedValue('OperatingModeStatus', $status);
-        foreach ([
-            'Farm' => ['Farm – Gesamtanlage', !$farm, 10],
-            'Master' => [$farm ? 'Farmmaster – Gerätedaten' : 'Einzelgerät – Live und Gerätedaten', false, 20],
-            'Storage' => ['Batterie und Speicher des Hauptgeräts', false, 30],
-            'Second' => ['Weiteres Farmgerät', !$farm, 40],
-            'Wallbox' => ['Wallbox – Übersicht', false, 50],
-            'Daily' => ['Tageswerte und Prognose', false, 60],
-            'Diagnostics' => ['Diagnose und Status', false, 90]
-        ] as $group => [$name, $hidden, $position]) {
+        $positions = ['Farm' => 10, 'FarmStorage' => 15, 'Master' => 20, 'Storage' => 25,
+            'Second' => 30, 'SecondStorage' => 35, 'Wallbox' => 40, 'Daily' => 50,
+            'Identity' => 60, 'Diagnostics' => 90];
+        foreach (self::GROUPS as $group => [$name]) {
+            $hidden = !$farm && in_array($group, self::FARM_GROUPS, true);
+            if (!$farm && $group === 'Master') {
+                $name = 'Einzelgerät – Leistung und Verbrauch';
+            }
+            $position = $positions[$group];
             $category = @IPS_GetObjectIDByIdent('E3DCGroup' . $group, $this->InstanceID);
             if ($category !== false && IPS_CategoryExists($category)) {
                 IPS_SetName($category, $name);
