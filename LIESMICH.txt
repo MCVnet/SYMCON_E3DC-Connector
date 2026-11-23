@@ -1,4 +1,4 @@
-E3DC Farm 0.7.7 für IP-Symcon 9.0
+E3DC Farm 0.7.8 für IP-Symcon 9.0
 
 Installation
 1. Auf dem Rechner, auf dem der IP-Symcon-Dienst läuft, den Ordner
@@ -39,8 +39,8 @@ Anzeigen und Grenzen
 - Firmwareabhängige Felder, Leistungsmesser und Wechselrichter-Indizes
   können je Gerät fehlen. Gemeldete Nullwerte optionaler Indizes
   beweisen nicht, dass die betreffende Hardware installiert ist.
-- Autarkie und Eigenverbrauch werden als gepackter Rohwert angezeigt,
-  weil V2.80 die Reihenfolge der beiden Bytes nicht eindeutig benennt.
+- Autarkie und Eigenverbrauch stehen als separate Werte des one bereit.
+  Register 40082 bleibt als Rohwert sichtbar.
   Batterie- und Wallbox-Steuerung sind noch nicht implementiert.
 
 Registerreferenz
@@ -149,3 +149,10 @@ Unter jeder Instanz werden Farm live, Batterie und Speicher, Wallbox,
 Tageswerte und Prognose, Farmmaster, Zweiter one und Diagnose und
 Status angelegt. Die Einträge darin sind Links auf die Modulvariablen,
 damit bestehende Variablen-IDs, Archive und Ident-Lookups erhalten bleiben.
+
+Autarkie und Eigenverbrauch laut one
+Register 40082 enthält die Autarkie im oberen Byte und den
+Eigenverbrauch im unteren Byte. Quelle für die Bytezuordnung:
+https://github.com/Brovning/e3dc/blob/main/e3dc/module.php#L2131-L2149
+Beide Werte beziehen sich auf das abgefragte Gerät. Die berechnete
+Farm-Momentanautarkie wird weiterhin separat angezeigt.

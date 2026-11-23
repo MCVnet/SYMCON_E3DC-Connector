@@ -117,6 +117,9 @@ class E3DCOne extends IPSModule
         $this->RegisterVariableBoolean('WallboxVehicleConnected', 'Fahrzeug angeschlossen', '', 80);
         $this->RegisterVariableInteger('WallboxPhaseMode', 'Wallbox-Phasenmodus', '', 81);
         $this->RegisterVariableString('EmergencyState', 'Notstromstatus', '', 82);
+        $this->RegisterVariableInteger('OneAutarky', 'Autarkie laut one (%)', '', 83);
+        $this->RegisterVariableInteger('OneSelfConsumption', 'Eigenverbrauch laut one (%)', '', 84);
+        $this->RegisterVariableBoolean('OneEfficiencyValid', 'Autarkie und Eigenverbrauch aktuell', '', 85);
         $dayPosition = 53;
         foreach (self::DAILY as $ident => $label) {
             $this->RegisterVariableFloat($ident, $label, '', $dayPosition++);
@@ -134,6 +137,7 @@ class E3DCOne extends IPSModule
         $this->SetTimerInterval('PollTimer', 0);
         $this->SetValue('FarmBatteryValid', false);
         $this->SetValue('BatteryEnergyValid', false);
+        $this->SetValue('OneEfficiencyValid', false);
         $this->SetValue('FarmPowerValid', false);
         $this->SetValue('SecondOneValid', false);
         if (trim($this->ReadPropertyString('Host')) === '') {
@@ -167,6 +171,7 @@ class E3DCOne extends IPSModule
             ]],
             'Master' => ['Farmmaster', [
                 'PV', 'House', 'Grid', 'GridImport', 'GridExport', 'External',
+                'OneAutarky', 'OneSelfConsumption', 'OneEfficiencyValid',
                 'Manufacturer', 'Model', 'Serial', 'Firmware', 'ModbusVersion'
             ]],
             'Second' => ['Zweiter one', [
@@ -467,6 +472,7 @@ PHP;
             $this->SetValue('FarmPowerValid', false);
             $this->SetValue('SecondOneValid', false);
             $this->SetValue('SGReadyValid', false);
+            $this->SetValue('OneEfficiencyValid', false);
             $this->SetValue('WallboxAvailable', false);
             $this->publishDaily(false);
             $this->SetValue('DataStatus', $error->getMessage());
@@ -499,7 +505,16 @@ PHP;
             4 => 'Motorschalter außerhalb Normalstellung',
             default => 'Unbekannter Status (' . $registers[16] . ')'
         });
-        $this->SetValue('EfficiencyRaw', sprintf('0x%04X', $registers[14]));
+        $efficiency = $registers[14];
+        $this->SetValue('EfficiencyRaw', sprintf('0x%04X', $efficiency));
+        $autarky = $efficiency >> 8;
+        $selfConsumption = $efficiency & 0xFF;
+        $valid = $autarky <= 100 && $selfConsumption <= 100;
+        if ($valid) {
+            $this->SetValue('OneAutarky', $autarky);
+            $this->SetValue('OneSelfConsumption', $selfConsumption);
+        }
+        $this->SetValue('OneEfficiencyValid', $valid);
         $ems = $registers[17];
         $this->SetValue('EMS', $ems);
         $flags = [];
