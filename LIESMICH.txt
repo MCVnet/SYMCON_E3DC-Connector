@@ -1,4 +1,4 @@
-E3DC Farm 0.7.5 für IP-Symcon 9.0
+E3DC Farm 0.7.6 für IP-Symcon 9.0
 
 Installation
 1. Auf dem Rechner, auf dem der IP-Symcon-Dienst läuft, den Ordner
@@ -125,3 +125,21 @@ gilt die gespeicherte Adresse oder bei der Ersteinrichtung der
 einzige Teilnehmer mit Farmzähler, sofern eindeutig erkennbar.
 
 Der Status der automatischen Übernahme steht unter „LAN-Einrichtung“.
+
+Abgleich mit der RSCP-Integration hacs-e3dc
+Modbus deckt Gerätekennungen, Live-Leistung und Ladezustand,
+Leistungsmesser, PV-Strings, Wechselrichterwerte, EMS-Flags,
+Notstrom-Grundstatus, den SG-Ready-Code, Wallbox-Grundstatus und
+firmwareabhängige Batteriegrenzen ab. Version 0.7.6 stellt davon
+Leistungsrichtungen, Notstrom, SG Ready und den gewählten efy-Slot
+als Einzelvariablen bereit. Farm-Lade- und Entladeleistung zeigen
+gegenläufige Vorgänge beider Speicher getrennt an.
+
+Die HACS-Abfragen für native Tages-, Monats- und Jahresstatistik,
+Batteriepack- und Moduldiagnose, Wechselrichtertemperaturen,
+erweiterte EMS- und Wallbox-Einstellungen, manuelles Netzladen und
+Gerätezeit benötigen eine zusätzliche RSCP-Anbindung. Die
+Tageszähler dieses Moduls werden weiterhin aus Messwerten gebildet.
+Eine E3/DC-Solarprognose wird auch in der HACS-Abfrage nicht gelesen.
+
+Referenz: https://github.com/torbennehmer/hacs-e3dc/tree/main/custom_components/e3dc_rscp

@@ -44,6 +44,7 @@ class E3DCOne extends IPSModule
         $this->RegisterPropertyInteger('Unit', 1);
         $this->RegisterPropertyInteger('Interval', 15);
         $this->RegisterPropertyBoolean('ReadWallbox', false);
+        $this->RegisterPropertyInteger('WallboxSlot', 0);
         $this->RegisterPropertyInteger('FarmConsumptionMeter', -1);
         $this->RegisterPropertyInteger('HeatPumpMeter', -1);
         $this->RegisterPropertyInteger('SecondOne', 0);
@@ -101,6 +102,21 @@ class E3DCOne extends IPSModule
         $this->RegisterVariableFloat('SecondCapacity', 'Zweiter one Speicherkapazität (kWh)', '', 65);
         $this->RegisterVariableBoolean('SecondOneValid', 'Zweiter one erreichbar', '', 66);
         $this->RegisterVariableString('LanSetupStatus', 'LAN-Einrichtung', '', 67);
+        $this->RegisterVariableInteger('BatteryChargePower', 'Ladeleistung des one (W)', '', 68);
+        $this->RegisterVariableInteger('BatteryDischargePower', 'Entladeleistung des one (W)', '', 69);
+        $this->RegisterVariableInteger('GridImport', 'Netzbezug laut one (W)', '', 70);
+        $this->RegisterVariableInteger('GridExport', 'Netzeinspeisung laut one (W)', '', 71);
+        $this->RegisterVariableInteger('FarmBatteryChargePower', 'Farm-Batterieladeleistung (W)', '', 72);
+        $this->RegisterVariableInteger('FarmBatteryDischargePower', 'Farm-Batterieentladeleistung (W)', '', 73);
+        $this->RegisterVariableInteger('SGReadyState', 'SG Ready (Statuscode)', '', 74);
+        $this->RegisterVariableBoolean('SGReadyValid', 'SG-Ready-Status aktuell', '', 75);
+        $this->RegisterVariableBoolean('WallboxAvailable', 'Wallbox verfügbar', '', 76);
+        $this->RegisterVariableBoolean('WallboxSolarMode', 'Wallbox im Solarbetrieb', '', 77);
+        $this->RegisterVariableBoolean('WallboxChargeAllowed', 'Wallbox-Laden freigegeben', '', 78);
+        $this->RegisterVariableBoolean('WallboxCharging', 'Wallbox lädt', '', 79);
+        $this->RegisterVariableBoolean('WallboxVehicleConnected', 'Fahrzeug angeschlossen', '', 80);
+        $this->RegisterVariableInteger('WallboxPhaseMode', 'Wallbox-Phasenmodus', '', 81);
+        $this->RegisterVariableString('EmergencyState', 'Notstromstatus', '', 82);
         $dayPosition = 53;
         foreach (self::DAILY as $ident => $label) {
             $this->RegisterVariableFloat($ident, $label, '', $dayPosition++);
@@ -378,6 +394,8 @@ PHP;
             $this->SetValue('BatteryEnergyValid', false);
             $this->SetValue('FarmPowerValid', false);
             $this->SetValue('SecondOneValid', false);
+            $this->SetValue('SGReadyValid', false);
+            $this->SetValue('WallboxAvailable', false);
             $this->publishDaily(false);
             $this->SetValue('DataStatus', $error->getMessage());
             $this->SetStatus(201);
@@ -393,8 +411,22 @@ PHP;
             $this->SetValue($ident, $this->signed32($registers, $index));
             $index += 2;
         }
+        $battery = $this->GetValue('Battery');
+        $grid = $this->GetValue('Grid');
+        $this->SetValue('BatteryChargePower', max(0, $battery));
+        $this->SetValue('BatteryDischargePower', max(0, -$battery));
+        $this->SetValue('GridImport', max(0, $grid));
+        $this->SetValue('GridExport', max(0, -$grid));
         $this->SetValue('SOC', $registers[15]);
         $this->SetValue('Emergency', $registers[16]);
+        $this->SetValue('EmergencyState', match ($registers[16]) {
+            0 => 'Nicht unterstützt',
+            1 => 'Aktiv',
+            2 => 'Nicht aktiv',
+            3 => 'Nicht verfügbar',
+            4 => 'Motorschalter außerhalb Normalstellung',
+            default => 'Unbekannter Status (' . $registers[16] . ')'
+        });
         $this->SetValue('EfficiencyRaw', sprintf('0x%04X', $registers[14]));
         $ems = $registers[17];
         $this->SetValue('EMS', $ems);
@@ -453,6 +485,16 @@ PHP;
         }
         $this->SetValue('Wallboxes', $summary === [] ? $wallboxStatus : implode(' | ', $summary));
         $this->publishJson('WallboxDetails', $wallboxes);
+        $selectedWallbox = $wallboxes['Slot ' . $this->ReadPropertyInteger('WallboxSlot')] ?? [];
+        $wallboxAvailable = $selectedWallbox['Verfügbar'] ?? false;
+        if ($wallboxAvailable) {
+            $this->SetValue('WallboxSolarMode', $selectedWallbox['Betriebsart'] === 'Solarbetrieb');
+            $this->SetValue('WallboxChargeAllowed', $selectedWallbox['Laden freigegeben']);
+            $this->SetValue('WallboxCharging', $selectedWallbox['Auto lädt']);
+            $this->SetValue('WallboxVehicleConnected', $selectedWallbox['Fahrzeug angeschlossen']);
+            $this->SetValue('WallboxPhaseMode', $selectedWallbox['Aktive Phasen laut efy-Status']);
+        }
+        $this->SetValue('WallboxAvailable', $wallboxAvailable);
 
         $identity = $read('Geräteinformationen', 40002, 66);
         if ($identity !== null) {
@@ -480,7 +522,9 @@ PHP;
         $meters = $read('Leistungsmesser und SG Ready', 40105, 33);
         $meter32 = $read('32-Bit-Phasenleistung', 40138, 48);
         $meterData = [];
+        $this->SetValue('SGReadyValid', $meters !== null);
         if ($meters !== null) {
+            $this->SetValue('SGReadyState', $meters[32]);
             $meterData['SG Ready (Rohwert)'] = $meters[32];
             for ($i = 0; $i < 8; $i++) {
                 $entry = ['Typ' => $meters[4 * $i]];
@@ -698,7 +742,10 @@ PHP;
     private function publishFarmPower(int $peerPV, int $peerBattery): void
     {
         $pv = $this->GetValue('PV') + $peerPV;
-        $battery = $this->GetValue('Battery') + $peerBattery;
+        $localBattery = $this->GetValue('Battery');
+        $battery = $localBattery + $peerBattery;
+        $this->SetValue('FarmBatteryChargePower', max(0, $localBattery) + max(0, $peerBattery));
+        $this->SetValue('FarmBatteryDischargePower', max(0, -$localBattery) + max(0, -$peerBattery));
         $wallbox = $this->GetValue('WallboxPower');
         $this->SetValue('FarmPV', $pv);
         $this->SetValue('FarmBatteryPower', $battery);

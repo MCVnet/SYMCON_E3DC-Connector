@@ -43,6 +43,13 @@
     },
     {
       "type": "NumberSpinner",
+      "name": "WallboxSlot",
+      "caption": "Wallbox-Slot für die Einzelvariablen",
+      "minimum": 0,
+      "maximum": 7
+    },
+    {
+      "type": "NumberSpinner",
       "name": "FarmConsumptionMeter",
       "caption": "Index Farm-Verbrauchszähler (−1: aus)",
       "minimum": -1,
