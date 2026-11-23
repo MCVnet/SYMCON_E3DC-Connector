@@ -44,8 +44,9 @@ class E3DCOne extends IPSModule
         $this->RegisterPropertyInteger('Port', 502);
         $this->RegisterPropertyInteger('Unit', 1);
         $this->RegisterPropertyInteger('Interval', 15);
+        $this->RegisterPropertyBoolean('AutoFarmDevices', true);
         $this->RegisterPropertyBoolean('ReadWallbox', false);
-        $this->RegisterPropertyInteger('WallboxSlot', 0);
+        $this->RegisterPropertyInteger('WallboxSlot', -1);
         $this->RegisterPropertyInteger('FarmConsumptionMeter', -1);
         $this->RegisterPropertyInteger('HeatPumpMeter', -1);
         $this->RegisterPropertyInteger('SecondOne', 0);
@@ -113,6 +114,7 @@ class E3DCOne extends IPSModule
         $this->maintainGroupedVariable('GridExport', 'Netzeinspeisung laut one (W)', '', VARIABLETYPE_INTEGER);
         $this->maintainGroupedVariable('FarmBatteryChargePower', 'Farm-Batterieladeleistung (W)', '', VARIABLETYPE_INTEGER);
         $this->maintainGroupedVariable('FarmBatteryDischargePower', 'Farm-Batterieentladeleistung (W)', '', VARIABLETYPE_INTEGER);
+        $this->maintainGroupedVariable('DetectedFarmDevices', 'Zähler- und Wallbox-Zuordnung', '', VARIABLETYPE_STRING);
         $this->maintainGroupedVariable('SGReadyState', 'SG Ready (Statuscode)', '', VARIABLETYPE_INTEGER);
         $this->maintainGroupedVariable('SGReadyValid', 'SG-Ready-Status aktuell', '', VARIABLETYPE_BOOLEAN);
         $this->maintainGroupedVariable('WallboxAvailable', 'Wallbox verfügbar', '', VARIABLETYPE_BOOLEAN);
@@ -192,7 +194,7 @@ class E3DCOne extends IPSModule
                 'SecondOneValid', 'SecondPV', 'SecondBattery', 'SecondSOC', 'SecondCapacity'
             ]],
             'Diagnostics' => ['Diagnose und Status', [
-                'DataStatus', 'LastSuccess', 'LanSetupStatus', 'ReadNotes', 'RegisterCount',
+                'DataStatus', 'LastSuccess', 'LanSetupStatus', 'ReadNotes', 'DetectedFarmDevices', 'RegisterCount',
                 'PowerMeters', 'DCStrings', 'Inverters', 'SGReadyState', 'SGReadyValid',
                 'EmergencyState', 'Emergency', 'EMS', 'EMSFlags', 'EfficiencyRaw', 'RemoteStatus'
             ]]
@@ -662,16 +664,19 @@ PHP;
             }
         };
 
+        $auto = $this->ReadPropertyBoolean('AutoFarmDevices');
         $wallboxes = [];
+        $availableSlots = [];
         $summary = [];
         $wallboxStatus = 'Abfrage deaktiviert';
-        if ($this->ReadPropertyBoolean('ReadWallbox')) {
+        if ($auto || $this->ReadPropertyBoolean('ReadWallbox')) {
             $values = $read('Wallbox-Slots', 40088, 8);
             $wallboxStatus = $values === null ? 'Wallbox-Abfrage fehlgeschlagen' : 'Kein Wallbox-Slot verfügbar';
             foreach ($values ?? [] as $slot => $state) {
                 $available = ($state & 1) !== 0;
                 $details = ['Verfügbar' => $available, 'Rohwert' => $state];
                 if ($available) {
+                    $availableSlots[] = $slot;
                     $details += [
                         'Betriebsart' => ($state & 2) !== 0 ? 'Solarbetrieb' : 'Mischbetrieb',
                         'Laden freigegeben' => ($state & 4) === 0,
@@ -687,7 +692,13 @@ PHP;
         }
         $this->setGroupedValue('Wallboxes', $summary === [] ? $wallboxStatus : implode(' | ', $summary));
         $this->publishJson('WallboxDetails', $wallboxes);
-        $selectedWallbox = $wallboxes['Slot ' . $this->ReadPropertyInteger('WallboxSlot')] ?? [];
+        $slot = $this->ReadPropertyInteger('WallboxSlot');
+        if ($slot === -1 && count($availableSlots) === 1) {
+            $slot = $availableSlots[0];
+        } elseif ($slot === -1 && count($availableSlots) > 1) {
+            $notes['Wallbox-Zuordnung'] = 'Mehrere Wallboxen gefunden. Bitte den gewünschten Slot wählen.';
+        }
+        $selectedWallbox = $wallboxes['Slot ' . $slot] ?? [];
         $wallboxAvailable = $selectedWallbox['Verfügbar'] ?? false;
         if ($wallboxAvailable) {
             $this->setGroupedValue('WallboxSolarMode', $selectedWallbox['Betriebsart'] === 'Solarbetrieb');
@@ -741,6 +752,15 @@ PHP;
         $this->publishJson('PowerMeters', $meterData);
         $farm = $this->ReadPropertyInteger('FarmConsumptionMeter');
         $heatPump = $this->ReadPropertyInteger('HeatPumpMeter');
+        if ($auto && $meters !== null) {
+            $farm = $this->resolveMeter($meters, $farm, 5, 'Farmzähler', $notes);
+            $heatPump = $this->resolveMeter($meters, $heatPump, 4, 'Wärmepumpenzähler', $notes);
+        }
+        $this->publishJson('DetectedFarmDevices', [
+            'Farmzähler' => $farm >= 0 ? $farm : null,
+            'Wärmepumpenzähler' => $heatPump >= 0 ? $heatPump : null,
+            'Wallbox-Slot' => $wallboxAvailable ? $slot : null
+        ]);
         if ($farm !== -1 || $heatPump !== -1) {
             $this->publishFarmConsumption($meterData, $farm, $heatPump, $notes);
         }
@@ -1046,6 +1066,26 @@ PHP;
         $capacity = $values['Max. speicherbare Energie (Wh)'] ?? 0;
         $energy = $values['Verbleibende Energie (Wh)'] ?? -1;
         return $capacity > 0 && $energy >= 0 && $energy <= $capacity;
+    }
+
+    private function resolveMeter(array $registers, int $index, int $type, string $name, array &$notes): int
+    {
+        if ($index !== -1) {
+            return $index;
+        }
+        $matches = [];
+        for ($candidate = 0; $candidate < 8; $candidate++) {
+            if ($registers[4 * $candidate] === $type) {
+                $matches[] = $candidate;
+            }
+        }
+        if (count($matches) === 1) {
+            return $matches[0];
+        }
+        if ($matches !== []) {
+            $notes[$name] = 'Mehrere Zähler dieses Typs gefunden. Bitte den gewünschten Index wählen.';
+        }
+        return -1;
     }
 
     private function publishFarmConsumption(array $meters, int $farm, int $heatPump, array &$notes): void

@@ -63,32 +63,37 @@
       "items": [
         {
           "type": "Label",
-          "caption": "Die Zählerindizes stehen unter „Leistungsmesser“. Der Farmzähler hat Typ 5, der externe Wärmepumpenzähler Typ 4."
+          "caption": "Bei automatischer Zuordnung werden eindeutige Zähler und Wallbox-Slots verwendet. Bei mehreren Treffern bitte den Index oder Slot wählen."
+        },
+        {
+          "type": "CheckBox",
+          "name": "AutoFarmDevices",
+          "caption": "Zähler und Wallbox automatisch erkennen"
         },
         {
           "type": "NumberSpinner",
           "name": "FarmConsumptionMeter",
-          "caption": "Index Farm-Verbrauchszähler (−1: aus)",
+          "caption": "Index Farm-Verbrauchszähler (−1 = automatisch)",
           "minimum": -1,
           "maximum": 7
         },
         {
           "type": "NumberSpinner",
           "name": "HeatPumpMeter",
-          "caption": "Index Wärmepumpenzähler (−1: aus)",
+          "caption": "Index Wärmepumpenzähler (−1 = automatisch)",
           "minimum": -1,
           "maximum": 7
         },
         {
           "type": "CheckBox",
           "name": "ReadWallbox",
-          "caption": "Wallbox am Farmmaster auslesen"
+          "caption": "Wallbox auch ohne automatische Erkennung auslesen"
         },
         {
           "type": "NumberSpinner",
           "name": "WallboxSlot",
-          "caption": "Wallbox-Slot für die Einzelvariablen",
-          "minimum": 0,
+          "caption": "Wallbox-Slot (−1 = automatisch)",
+          "minimum": -1,
           "maximum": 7
         }
       ],
