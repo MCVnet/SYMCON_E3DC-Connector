@@ -1,5 +1,5 @@
 # E3/DC Connector
 
-IP-Symcon-Modul für die lokale Anbindung von E3/DC-Geräten als Einzelgerät oder Farm. Es liest Messwerte und Zubehör über Modbus/TCP und kann lokale RSCP-Tagessummen übernehmen. Unterstützte Steuerbefehle lassen sich in der Instanz freigeben.
+IP-Symcon-Modul für die lokale Anbindung von E3/DC-Geräten als Einzelgerät oder Farm. Der Connector liest Live-Werte, Tagessummen, Batterie- und Zubehördetails per lokalem RSCP. Unterstützte Ladeeinstellungen und Sperrzeiten lassen sich in Symcon ändern.
 
 [Installation und Funktionsumfang](LIESMICH.txt)

@@ -1,334 +1,40 @@
 E3/DC Connector 0.9.7 für IP-Symcon 9.0
 
-Installation
-1. Auf dem Rechner, auf dem der IP-Symcon-Dienst läuft, den Ordner
-   SYMCON_E3DC-Connector aus dem ZIP in das Unterverzeichnis modules des
-   Symcon-Datenverzeichnisses kopieren. Den Datenpfad liefert das
-   Symcon-Skript: echo IPS_GetKernelDir();
-   Die Bibliothek liegt dann unter modules/SYMCON_E3DC-Connector/library.json.
-2. IP-Symcon-Dienst neu starten und eine Instanz
-   „E3/DC Connector“ anlegen. Bei einem Update die vorhandene
-   Farmmaster-Instanz weiterverwenden.
-3. Auf den Geräten Modbus/TCP im E3/DC Simple Mode für den
-   Zugriff aus dem lokalen Netzwerk aktivieren. In der Instanz die IP-Adresse und bei
-   einer Zweierfarm die zweite Adresse eintragen.
-   Voreinstellungen: Port 502, Unit-ID 1, Abfrage alle 15 Sekunden.
-4. Am Farmmaster „Wallbox-Slots prüfen“ aktivieren. Änderungen
-   übernehmen, dann „Jetzt auslesen“ wählen. Unter „Datenstatus“
-   steht das Abfrageergebnis, unter „Wallbox-Erkennung“ das
-   separate Ergebnis der Wallbox-Abfrage.
+Einrichtung
+- Das GitHub-Repository in der Symcon-Modulverwaltung hinzufügen und
+  eine Instanz „E3/DC Connector“ anlegen. Bestehende Instanzen behalten
+  Modul-ID, Einstellungen und Variablen-IDs.
+- Lokales RSCP aktivieren, Benutzer local.user, Benutzerpasswort und
+  RSCP-Verschlüsselungsschlüssel hinterlegen und übernehmen.
+- Hauptgerät und optional zweites Farmgerät per IP zuordnen. Die
+  LAN-Suche prüft erreichbare RSCP-Endpunkte und trägt eindeutige
+  Treffer ein. Einzelgeräte verwenden üblicherweise Port 5033,
+  der Farmcontroller üblicherweise Port 5034.
+- „Jetzt auslesen“ aktualisiert Live-Werte und Tagessummen.
+  Der Farmcontroller wird separat abgefragt. Sein Wert wird nicht zu
+  Einzelgeräten addiert.
 
-Anzeigen und Grenzen
-- Die Leistungswerte entsprechen der Sicht des jeweiligen Geräts.
-  Vor einer Verwendung als Farmwert mit der Farming-Ansicht im
-  E3/DC-Portal vergleichen. Hausverbrauch und Netzleistung nicht
-  über beide Geräte addieren.
-- Netzleistung unter null bedeutet Einspeisung. Batterieleistung
-  unter null bedeutet Entladung.
-- Ein Wallbox-Slot meldet Betriebsart und ob ein Auto lädt.
-  Die Slot-Erkennung ermittelt kein Wallbox-Modell.
-- Bei Kommunikationsfehlern bleiben die zuletzt empfangenen Werte
-  sichtbar. „Letzte erfolgreiche Abfrage“ zeigt ihren Zeitstand.
-- Version 0.7 sendet ausschließlich Modbus-Leseanfragen im
-  E3/DC Simple Mode. Optionale Detailgruppen stehen als JSON
-  in je einer Stringvariablen. Geräteinformationen und die bisherigen
-  Leistungswerte sind separate Variablen.
-- „Nicht verfügbare Daten“ führt fehlgeschlagene Abfragen pro Gruppe auf.
-  Leere Detailgruppen werden als {} angezeigt. Falls Geräteinformationen
-  nicht erneut gelesen werden können, bleiben ihre letzten Werte sichtbar.
-- Firmwareabhängige Felder, Leistungsmesser und Wechselrichter-Indizes
-  können je Gerät fehlen. Gemeldete Nullwerte optionaler Indizes
-  beweisen nicht, dass die betreffende Hardware installiert ist.
-- Autarkie und Eigenverbrauch stehen als separate Werte des one bereit.
-  Register 40082 bleibt als Rohwert sichtbar.
-  Seit 0.9.1 stehen optionale lokale Steuerbefehle zur Verfügung.
+RSCP-Gerätedetails
+Unter den Aktionen „RSCP-Gerätedetails“ stehen EMS-Daten, Batterie und
+Batteriemodule, Wechselrichter, Leistungsmesser und Wallbox zur Auswahl.
+Index 0 wird standardmäßig alle fünf Minuten aktualisiert. Weitere
+Indizes können gezielt abgerufen werden. Die Antwortfelder erscheinen in Symcon unter „RSCP-Gerätedetails“.
+Die Unterstützung hängt von Modell, Firmware und lokalen Leserechten ab.
+Die spezifizierte Kapazität pro Gerät in kWh ist von der nutzbaren
+Kapazität zu unterscheiden. Eine lokale Solarprognose ist nicht belegt.
 
-Registerreferenz
-E3/DC Modbus/TCP-Schnittstelle, V2.80, Abschnitte 3.1 und 4.
+Lokale Steuerung
+Die RSCP-Schreibbefehle zuerst in der Instanz freigeben. Unter den Aktionen
+können unterstützte Ladeeinstellungen und Lade-/Entladesperrzeiten
+geschrieben werden. Die Einstellungen gelten für das gewählte Zielgerät.
+Manuelle Ladung und Notstromtest werden nur auf ausdrücklichen Klick mit
+Bestätigung gesendet. Die manuelle Ladung kann Netzbezug verursachen.
+Ein Notstromtest kann die Stromversorgung unterbrechen.
+Die Batterie-Sollleistung lässt sich weiterhin per Skript vorgeben.
+Die alten Modbus-Skriptbefehle für Wallboxmodus und Ladefreigabe
+melden, dass diese beiden RSCP-Schreibfunktionen noch fehlen.
 
-Farm-Verbrauch
-Am Farmmaster den Index des Farmzählers (Typ 5) und den Index
-des Wärmepumpenzählers (Typ 4) eintragen, beispielsweise 0 und 4.
-Die Zuordnung setzt voraus, dass der Farmzähler den Gesamtverbrauch
-einschließlich Wärmepumpe misst. Die Summe seiner drei Phasen ergibt
-den Gesamtverbrauch. Die Summe der Wärmepumpenphasen wird davon
-für den Hausverbrauch abgezogen. Die Werte gelten nur, wenn
-„Farm-Verbrauchswerte aktuell“ aktiv ist. „Hausverbrauch laut one“
-zeigt weiterhin den Rohwert des Geräts aus Register 40072.
-
-Farm-Batterie
-Nur am Farmmaster die Symcon-Instanz des zweiten one auswählen.
-Beide Instanzen müssen die verbleibende und maximal speicherbare
-Energie liefern. Der Farm-Ladezustand entspricht der Summe der
-verbleibenden Energie geteilt durch die Summe der maximalen
-Kapazität. Die Leistung ist die Summe der beiden Geräteleistungen.
-Negative Leistung bedeutet Entladung. Die Farmwerte gelten nur,
-wenn „Farm-Batteriewerte aktuell“ aktiv ist. Die ursprüngliche
-SOC-Variable zeigt weiterhin den einzelnen one.
-
-Speicherkapazität
-Die maximale und die verbleibende Speicherenergie stehen pro one
-als separate kWh-Variablen zur Verfügung (Modbus 40208 und 40206).
-Der Farmmaster zeigt zusätzlich die Summe beider one an, wenn die
-zweite Instanz für die Farm-Batteriewerte ausgewählt ist. Die
-Aktuell-Variablen geben an, ob für die Anzeige gültige Daten vorliegen.
-
-Variablen für die Farm-Leistungsübersicht
-PV- und Batterieleistung addieren die Werte aus beiden one.
-Die Wallbox-Leistung und zusätzliche Erzeugung kommen vom Farmmaster.
-Farm-Netzleistung: Farm-Gesamtverbrauch + Wallbox-Leistung
-  - Farm-PV-Leistung - weitere Einspeiser + Farm-Batterieleistung.
-Positiv bedeutet Bezug, negativ Einspeisung. Die Momentanautarkie
-ist der aktuell ohne Netzbezug gedeckte Anteil am Verbrauch.
-Die Bilanz setzt voraus, dass der Farm-Verbrauchszähler die Wallbox
-separat lässt und die PV-Werte der beiden Geräte sich nicht überlappen.
-Bei PV-Produktion und ladender Wallbox mit dem Portal vergleichen.
-Farm-Leistungswerte benötigen keine gültigen Kapazitätsregister.
-
-Tageswerte
-Der Farmmaster sammelt die Tagesenergie in kWh ab dem ersten
-gültigen Messpunkt. Die Zähler werden nach Serverzeit am Tageswechsel
-zurückgesetzt. Längere Abfragelücken werden nicht hochgerechnet.
-Seit Version 0.8.5 werden Lade- und Entladeleistung pro one
-getrennt addiert. Zuvor war die Batterie-Tagesenergie saldiert.
-Netzbezug und Einspeisung stammen aus der Farm-Leistungsbilanz.
-Die Solarprognose kann aus einer vorhandenen numerischen Symcon-
-Variable in kWh übernommen werden. Modbus liefert hier keine Prognose.
-
-Kapazitäts-Ersatzwert
-Liefert ein one keine plausiblen Energieregister, kann je Instanz
-die bekannte nutzbare Kapazität in Wh eingetragen werden.
-Die Restenergie wird dann aus Kapazität und Geräte-SOC geschätzt.
-
-Betrieb beider one aus einer Instanz (ab Version 0.7)
-Die bisherige Farmmaster-Instanz behalten. Darin per LAN-Suche das
-private IPv4-/24-Netz mit dem eingestellten Modbus-Port und der
-Unit-ID aus Symcon durchsuchen. Der Suchknopf ordnet zwei eindeutige Treffer zu und speichert
-die IP-Adressen für Farmmaster und zweiten one.
-Für beide IP-Adressen gelten derselbe Port und dieselbe Unit-ID.
-Die direkte zweite IP-Adresse hat Vorrang vor der bisherigen
-Verknüpfung mit einer separaten Symcon-Instanz. Hat der zweite one
-einen konfigurierten Kapazitäts-Ersatzwert, diesen in das neue Feld
-am Farmmaster übertragen. Die alte Instanz kann für bestehende
-Referenzen erhalten bleiben. Das Modul verwendet weiterhin Lesezugriffe.
-
-Bei leerem Suchnetz nutzt die Suche die Farmmaster-IP aus dem Formular
-oder die gespeicherte IP. Ein LAN-Präfix wie 192.168.178 ist ebenfalls
-zulässig. Fehlermeldungen nennen das jeweils betroffene Feld.
-
-Ein /24 außerhalb der üblichen privaten IPv4-Bereiche ist suchbar,
-wenn der gespeicherte Farmmaster im selben Netz per Modbus antwortet.
-
-Der Suchknopf speichert bei genau zwei unterschiedlichen one die
-Zuordnung automatisch und stößt eine Abfrage an. Als Farmmaster
-gilt die gespeicherte Adresse oder bei der Ersteinrichtung der
-einzige Teilnehmer mit Farmzähler, sofern eindeutig erkennbar.
-
-Der Status der automatischen Übernahme steht unter „LAN-Einrichtung“.
-
-Abgleich mit der RSCP-Integration hacs-e3dc
-Modbus deckt Gerätekennungen, Live-Leistung und Ladezustand,
-Leistungsmesser, PV-Strings, Wechselrichterwerte, EMS-Flags,
-Notstrom-Grundstatus, den SG-Ready-Code, Wallbox-Grundstatus und
-firmwareabhängige Batteriegrenzen ab. Version 0.7.6 stellt davon
-Leistungsrichtungen, Notstrom, SG Ready und den gewählten efy-Slot
-als Einzelvariablen bereit. Farm-Lade- und Entladeleistung zeigen
-gegenläufige Vorgänge beider Speicher getrennt an.
-
-Die HACS-Abfragen für native Tages-, Monats- und Jahresstatistik,
-Batteriepack- und Moduldiagnose, Wechselrichtertemperaturen,
-erweiterte EMS- und Wallbox-Einstellungen, manuelles Netzladen und
-Gerätezeit benötigen eine zusätzliche RSCP-Anbindung. Die
-Tageszähler dieses Moduls werden weiterhin aus Messwerten gebildet.
-Eine E3/DC-Solarprognose wird auch in der HACS-Abfrage nicht gelesen.
-
-Referenz: https://github.com/torbennehmer/hacs-e3dc/tree/main/custom_components/e3dc_rscp
-
-Gruppierung im Objektbaum
-Unter jeder Instanz werden Farm live, Batterie und Speicher, Wallbox,
-Tageswerte und Prognose, Farmmaster, Zweiter one und Diagnose und
-Status angelegt. Die Variablen liegen direkt in den Kategorien. Beim Update werden
-bestehende Variablen mit ihren IDs verschoben. Alte vom Modul
-erstellte Kategorielinks werden ersetzt. Eigene Skripte mit einer
-Ident-Suche direkt unter der Instanz müssen die Kategorie angeben.
-
-Autarkie und Eigenverbrauch laut one
-Register 40082 enthält die Autarkie im oberen Byte und den
-Eigenverbrauch im unteren Byte. Quelle für die Bytezuordnung:
-https://github.com/Brovning/e3dc/blob/main/e3dc/module.php#L2131-L2149
-Beide Werte beziehen sich auf das abgefragte Gerät. Die berechnete
-Farm-Momentanautarkie wird weiterhin separat angezeigt.
-
-Instanz aktiv
-Der Schalter ist standardmäßig eingeschaltet. Ausschalten und
-Übernehmen stoppt die Abfrage beider one sowie manuelle Abfragen
-und die LAN-Suche. Die letzten Werte und Tageszähler bleiben
-erhalten. Die deaktivierte Zeit wird beim Einschalten nicht
-nachträglich in Tages-kWh umgerechnet.
-
-Ersteinrichtung mit LAN-Suche
-In „Netzwerk und Verbindung“ auf „E3/DC-Geräte suchen und einrichten“
-klicken. Bei leeren Adressfeldern sucht der Symcon-Server in seinen
-aktiven lokalen IPv4-/24-Netzen. Bei exakt zwei eindeutig erkannten
-one und einem eindeutigen Farmmaster werden beide Adressen gespeichert.
-Bei getrennten Netzen oder VLANs bei Bedarf das Suchnetz vorgeben.
-Unter „Diagnose und Status → LAN-Einrichtung“ steht die Bestätigung.
-
-Automatische Zähler- und Wallbox-Zuordnung
-Standardmäßig wird bei jeder Abfrage ein eindeutiger Typ-5-Zähler
-als Farmzähler und ein eindeutiger Typ-4-Zähler als Zusatzverbrauchszähler
-verwendet. Typ 4 bedeutet externer Verbrauch. Bei weiteren externen
-Verbrauchern die Zuordnung prüfen. Ein einzelner verfügbarer
-Wallbox-Slot wird ebenfalls erkannt. Fest gewählte Indizes haben
-Vorrang. Ergebnis: Diagnose und Status → Zähler- und Wallbox-Zuordnung.
-
-Farmbilanz
-Der Farmzähler wird standardmäßig als Netz-Messpunkt behandelt.
-Positiv bedeutet Netzbezug, negativ Einspeisung. Der Hausverbrauch
-ergibt sich aus Netzleistung plus PV und weitere Einspeiser,
-abzüglich Batterieladeleistung, Wallbox und Wärmepumpe. Eine
-negative Batterieleistung ist Entladung. Bei einem separaten
-Gesamtverbrauchszähler kann dessen Messpunkt im Formular gewählt
-werden. Die Umstellung startet die Tagesbilanz für Haus, Gesamt,
-Netzbezug und Einspeisung neu. Bereits erfasste Einzelzähler bleiben
-erhalten. Ältere Daten und Abfragelücken werden nicht nachberechnet.
-
-Solar-Tagesertrag aus der RSCP-Gerätedatenbank
-Die optionale Einstellung „Solar-Tagesertrag über lokales RSCP“
-verwendet die Farmmaster-IP und standardmäßig Port 5034. Der
-Symcon-Server muss die Farm für RSCP aus demselben Netz erreichen.
-Benutzerpasswort und Verschlüsselungsschlüssel werden in der lokalen
-Symcon-Konfiguration gespeichert. Der Abruf läuft jede Minute.
-Der Farmcontroller liefert den Gesamtertrag in Wh seit Mitternacht.
-Symcon rechnet ihn in kWh um und addiert keine Geräte-Einzelwerte.
-„Datenquelle Solarproduktion“ zeigt die tatsächlich verwendete Quelle.
-Wenn der RSCP-Wert seit mehr als drei Minuten nicht erneuert wurde,
-zeigt „Solarproduktion heute“ wieder die separate Modbus-Summe.
-Die Solarprognose ist von diesem gemessenen Tagesertrag unabhängig.
-
+Referenzen
+RSCPGui (rxhan), https://github.com/rxhan/RSCPGui, MIT.
+ioBroker.e3dc-rscp (git-kick), https://github.com/git-kick/ioBroker.e3dc-rscp.
 Die Rijndael-Implementierung stammt aus phpseclib 2.0.48 (MIT).
-Die beiden Dateien wurden für das Modul in einen eigenen PHP-Namespace
-verschoben. Lizenz: libs/Rijndael/LICENSE.
-
-Unter „Tageswerte und Prognose“ zeigt „RSCP-Tagessummen (Wh)“
-die vom Farmcontroller gelieferten Energiefelder für den Abgleich
-mit dem E3/DC-Portal. Die Solarproduktion verwendet DB_DC_POWER.
-Dieser Wert kann von der Solarproduktion im Portal abweichen.
-
-
-Kompatibilität vor Version 1.0
-Die LAN-Suche erkennt E3/DC-Geräte anhand ihrer Modbus-Signatur.
-Bei einem Einzelgerät genügt die IP des Hauptgeräts für die Live-Abfrage.
-Die Farm-Zusammenfassung unterstützt derzeit bis zu zwei Geräte.
-Automatisch zugeordnet wird das bestehende one-Farmpaar. Bei anderen
-Kombinationen wird die Liste für die manuelle Zuordnung angezeigt.
-Verfügbare Speicher-, Zähler- und Wallbox-Daten hängen von Modell und
-Firmware ab. Weitere Modelle müssen mit realen Geräten geprüft werden.
-
-Einzelgeräte, Zubehör und Steuerung ab 0.9.1
-Wenn der zusammenhängende Modbus-Block ab 40068 abgelehnt wird, liest
-das Modul die Grundwerte und fragt Zusatzregister separat ab. Die
-Tageswerte eines Einzelgeräts werden aus den Live-Werten seit Beginn
-der Symcon-Erfassung berechnet. Der Gesamtverbrauch eines Einzelgeräts
-entspricht dabei dem vom Gerät gemeldeten Hausverbrauch. Ein direkt
-ausgelesener RSCP-Solartageswert hat weiterhin Vorrang.
-
-Unter „Zubehör“ erscheinen erkannte Wallboxen, Zähler, PV-Strings und
-Wechselrichter. Die Namen werden in der Instanzkonfiguration gesetzt,
-zum Beispiel {"Wallbox0":"Garage","Zaehler4":"Wärmepumpe",
-"String1":"Dach Süd","Wechselrichter0":"Dach Ost"}.
-
-Steuerbefehle zuerst in der Instanzkonfiguration freigeben.
-E3DCF_SetWallboxMode($id, 0, true) schaltet Slot 0 auf Solarbetrieb.
-E3DCF_SetWallboxChargingAllowed($id, 0, false) sperrt das Laden,
-sofern das Wallbox-Modell die Änderung beim Rücklesen bestätigt.
-E3DCF_SetBatteryPower($id, false, 500) fordert einmalig 500 W Ladeleistung
-am Hauptgerät an. Negative Werte fordern Entladeleistung an. Laden kann
-Netzbezug verursachen. Das Modul prüft die aktuell gemeldeten Grenzen.
-Das Gerät kehrt laut Modbus-Dokumentation nach spätestens 30 Sekunden
-ohne weitere Vorgabe zum normalen Betrieb zurück.
-E3DCF_StopBatteryControl($id, false) beendet die Vorgabe sofort.
-Für das zweite Gerät true statt false verwenden. Dazu muss dessen
-IP-Adresse direkt in derselben Instanz hinterlegt sein.
-
-Brovnings Modul liest keine E3/DC-Solarprognose aus. Als Quelle für
-die Prognose kann eine vorhandene numerische Symcon-Variable in kWh
-ausgewählt werden.
-
-Anlagentyp und externe Systeme ab 0.9.2
-In „Anlage und Geräteerkennung“ die Betriebsart wählen. Automatisch
-verwendet die bestehende Zuordnung eines zweiten Farmgeräts. Bei der
-Ersteinrichtung erkennt die Suche ein Einzelgerät oder ein eindeutig
-zugeordnetes one-Farmpaar. Bei mehreren unabhängigen Treffern die
-gewünschte IP manuell wählen. „Einzelgerät“ blendet die Farmbereiche
-aus. „Farm“ zeigt sie auch dann an, wenn der zweite Teilnehmer noch
-fehlt. Bestehende Variablen werden beim Umgruppieren verschoben,
-damit ihre Objekt-IDs und Archivzuordnungen erhalten bleiben.
-
-Unter „Externe Systeme“ numerische Symcon-Leistungsvariablen mit
-Rolle und Einheit W oder kW hinzufügen. Die Instanz zeigt diese
-Quellen getrennt in Watt an. Sie werden nicht zu den E3/DC-Werten
-addiert. Für die Farm-Summen unterstützt die Instanz weiterhin
-ein Hauptgerät plus ein weiteres zugeordnetes E3/DC-Gerät.
-
-Automatisches Zubehör und lokale RSCP-Tagessummen ab 0.9.3
-Die Tabelle „Zubehör“ zeigt die zuletzt gemeldeten Geräte. Anzeigename
-und Sichtbarkeit lassen sich direkt in ihrer Zeile bearbeiten.
-Die Wallbox-Übersicht nutzt einen verfügbaren Slot, auch wenn die
-frühere Slot-Vorgabe nicht mehr passt. Für optionale Namen und
-Sichtbarkeit gibt es eine Tabelle. Ältere JSON-Namen gelten weiter.
-Die manuell eingetragene Notstromreserve dient nur zur Berechnung
-der Speicherenergie oberhalb der Reserve.
-
-Unter „Tageswerte und Prognose“ erscheinen die verfügbaren
-RSCP-Energiefelder des Geräts einzeln. Die bisherigen Tages-
-berechnungen bleiben zum Abgleich sichtbar. Prognosen erfordern
-weiterhin eine vorhandene Symcon-Variable als Quelle.
-
-
-Optionaler Zusatzverbrauch
-Die Tabelle unter „Zusatzzähler, Wallbox und Zubehör“ zeigt den
-automatisch zugeordneten Zusatzverbrauchszähler und Wallbox-Slot.
-Ein eindeutiger Typ-4-Zähler wird in der Farm als Zusatzverbrauch
-verwendet. Bei mehreren Typ-4-Zählern bleibt die Aufteilung aus.
-Netz- und Gesamtverbrauch werden unabhängig davon ermittelt.
-
-
-
-Wechselrichter in einer Farm ab 0.9.7
-Das Modul liest die Wechselrichterregister beider Farmgeräte.
-Das zweite Farmgerät besitzt eigene Zubehöreinträge, da derselbe
-Wechselrichterindex auf beiden Geräten vorkommen kann. Bei Zuordnung
-über eine ältere zweite Symcon-Instanz werden deren aktuelle
-Wechselrichterdetails verwendet.
-
-
-Die LAN-Suche speichert eine eindeutige Erkennung als „Farm“ oder
-„Einzelgerät“ und aktualisiert die offene Instanzkonfiguration. Eine
-neue Instanz beginnt mit den Einrichtungs- und Statusvariablen.
-Messvariablen werden bei Übernahme der Geräteadresse angelegt.
-Farmvariablen werden im Einzelbetrieb nicht neu angelegt.
-
-
-Lokales RSCP als bevorzugte Quelle
-Die vorhandene RSCP-Freigabe aktiviert zusätzlich die Live-Abfrage.
-Die Einzelgeräte verwenden standardmäßig Port 5033, die Farm-Tagesdaten
-Port 5034. Für beide werden Benutzer, Passwort und Schlüssel aus der
-lokalen Instanzkonfiguration verwendet. Die direkt hinterlegte zweite
-IP-Adresse wird separat abgefragt. Bei einer älteren zweiten Symcon-
-Instanz werden deren aktuelle Variablen verwendet.
-
-PV, Batterie, Haus, Netz, externe Einspeiser, Wallbox-Leistung und
-Ladezustand verwenden erfolgreiche RSCP-Werte je Gerät. Modbus
-ergänzt fehlende Felder und liefert weiterhin Zähler- und Gerätedetails.
-Die Batterie-Spezifikation für Index 0 steht pro Gerät separat in kWh.
-Sie wird nicht als nutzbare Kapazität behandelt oder ungeprüft zu
-einem Farmwert addiert. Modbus bleibt für LAN-Suche und Steuerung aktiv.
-
-
-Variablenstruktur
-Farmbilanz, Farm-Batteriespeicher, Messwerte und Speicher je Gerät,
-Wallbox sowie Tagesenergie haben eigene Kategorien. Die nutzbare
-Kapazität und die spezifizierte RSCP-Kapazität werden getrennt geführt.
-Beim Übernehmen werden vorhandene Modulvariablen in die passenden
-Kategorien verschoben und umbenannt. Ihre Objekt-IDs bleiben erhalten.

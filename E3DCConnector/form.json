@@ -7,6 +7,58 @@
     },
     {
       "type": "ExpansionPanel",
+      "caption": "Lokales RSCP",
+      "items": [
+        {
+          "type": "Label",
+          "caption": "Alle Geräteabfragen und Schreibbefehle laufen über lokales RSCP. Der Farmcontroller ist ein eigener RSCP-Endpunkt."
+        },
+        {
+          "type": "CheckBox",
+          "name": "ReadRscpSolar",
+          "caption": "Lokales RSCP verwenden"
+        },
+        {
+          "type": "NumberSpinner",
+          "name": "DeviceRscpPort",
+          "caption": "RSCP-Port der Einzelgeräte",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        {
+          "type": "NumberSpinner",
+          "name": "FarmRscpPort",
+          "caption": "RSCP-Port des Farmcontrollers",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        {
+          "type": "ValidationTextBox",
+          "name": "FarmRscpUser",
+          "caption": "RSCP-Benutzer"
+        },
+        {
+          "type": "PasswordTextBox",
+          "name": "FarmRscpPassword",
+          "caption": "Passwort des lokalen RSCP-Benutzers"
+        },
+        {
+          "type": "PasswordTextBox",
+          "name": "FarmRscpKey",
+          "caption": "RSCP-Verschlüsselungsschlüssel"
+        },
+        {
+          "type": "NumberSpinner",
+          "name": "RscpDetailInterval",
+          "caption": "Detailabfrage (Sekunden, 0 = nur manuell)",
+          "minimum": 0,
+          "maximum": 3600
+        }
+      ],
+      "expanded": true
+    },
+    {
+      "type": "ExpansionPanel",
       "caption": "Anlage und Geräteerkennung",
       "expanded": true,
       "items": [
@@ -31,7 +83,7 @@
         },
         {
           "type": "Label",
-          "caption": "Die LAN-Suche trägt bei eindeutiger Erkennung Betriebsart und Geräteadressen ein. Die Messvariablen werden danach für die erkannte Betriebsart angelegt. Bei unklarer Zuordnung kann die Betriebsart manuell gewählt werden."
+          "caption": "Zuerst die lokalen RSCP-Zugangsdaten übernehmen. Die LAN-Suche bestätigt Geräte per RSCP und trägt eindeutige Treffer ein."
         },
         {
           "type": "ValidationTextBox",
@@ -41,7 +93,7 @@
         {
           "type": "Button",
           "caption": "Geräte im LAN suchen",
-          "onClick": "echo E3DCF_DiscoverLAN($id, $LanNetwork, $Host, $Port, $Unit, 'auto');"
+          "onClick": "echo E3DCF_DiscoverLAN($id, $LanNetwork, $Host, 0, 0, 'auto');"
         },
         {
           "type": "ExpansionPanel",
@@ -52,20 +104,6 @@
               "type": "ValidationTextBox",
               "name": "LanNetwork",
               "caption": "LAN-Suchnetz (optional, z. B. 192.168.178.0/24)"
-            },
-            {
-              "type": "NumberSpinner",
-              "name": "Port",
-              "caption": "Modbus-TCP-Port",
-              "minimum": 1,
-              "maximum": 65535
-            },
-            {
-              "type": "NumberSpinner",
-              "name": "Unit",
-              "caption": "Modbus Unit-ID",
-              "minimum": 0,
-              "maximum": 255
             },
             {
               "type": "NumberSpinner",
@@ -80,7 +118,7 @@
     },
     {
       "type": "ExpansionPanel",
-      "caption": "Farm und Messpunkte",
+      "caption": "Farmgeräte",
       "expanded": false,
       "items": [
         {
@@ -91,30 +129,6 @@
           "type": "ValidationTextBox",
           "name": "SecondHost",
           "caption": "IP-Adresse des zweiten Farmgeräts (optional)"
-        },
-        {
-          "type": "ExpansionPanel",
-          "caption": "Erweiterte Zählerzuordnung",
-          "expanded": false,
-          "items": [
-            {
-              "type": "CheckBox",
-              "name": "AutoFarmDevices",
-              "caption": "Zähler und Wallbox automatisch erkennen"
-            },
-            {
-              "type": "NumberSpinner",
-              "name": "FarmConsumptionMeter",
-              "caption": "Index Farm-Verbrauchszähler (−1 = automatisch)",
-              "minimum": -1,
-              "maximum": 7
-            },
-            {
-              "type": "CheckBox",
-              "name": "FarmMeterIsConsumption",
-              "caption": "Farmzähler ist ein reiner Verbrauchszähler"
-            }
-          ]
         },
         {
           "type": "ExpansionPanel",
@@ -284,82 +298,6 @@
       "items": [
         {
           "type": "ExpansionPanel",
-          "caption": "Lokales RSCP",
-          "items": [
-            {
-              "type": "Label",
-              "caption": "RSCP hat Vorrang für verfügbare Live-Werte. Unterstützte Batterie-Spezifikationen erscheinen pro Gerät. Tagessummen kommen vom Farmcontroller. Modbus ergänzt fehlende Werte und Gerätedetails."
-            },
-            {
-              "type": "CheckBox",
-              "name": "ReadRscpSolar",
-              "caption": "Lokales RSCP verwenden"
-            },
-            {
-              "type": "NumberSpinner",
-              "name": "DeviceRscpPort",
-              "caption": "RSCP-Port der Einzelgeräte",
-              "minimum": 1,
-              "maximum": 65535
-            },
-            {
-              "type": "NumberSpinner",
-              "name": "FarmRscpPort",
-              "caption": "RSCP-Port für Tagessummen",
-              "minimum": 1,
-              "maximum": 65535
-            },
-            {
-              "type": "ValidationTextBox",
-              "name": "FarmRscpUser",
-              "caption": "RSCP-Benutzer"
-            },
-            {
-              "type": "PasswordTextBox",
-              "name": "FarmRscpPassword",
-              "caption": "Passwort des lokalen RSCP-Benutzers"
-            },
-            {
-              "type": "PasswordTextBox",
-              "name": "FarmRscpKey",
-              "caption": "RSCP-Verschlüsselungsschlüssel"
-            }
-          ]
-        },
-        {
-          "type": "ExpansionPanel",
-          "caption": "Speicher und Notstromreserve",
-          "expanded": false,
-          "items": [
-            {
-              "type": "Label",
-              "caption": "Ersatzkapazitäten nur bei fehlenden Gerätedaten setzen. Die Reserve wird ausschließlich für die Anzeige der verfügbaren Speicherenergie verwendet."
-            },
-            {
-              "type": "NumberSpinner",
-              "name": "CapacityFallbackWh",
-              "caption": "Nutzbare Speicherkapazität als Ersatzwert (Wh, 0 = aus)",
-              "minimum": 0,
-              "maximum": 1000000
-            },
-            {
-              "type": "NumberSpinner",
-              "name": "SecondCapacityFallbackWh",
-              "caption": "Nutzbare Ersatzkapazität des zweiten one (Wh, 0 = aus)",
-              "minimum": 0,
-              "maximum": 1000000
-            },
-            {
-              "type": "NumberSpinner",
-              "name": "BackupReservePercent",
-              "caption": "Notstromreserve (%)",
-              "minimum": 0,
-              "maximum": 100
-            }
-          ]
-        },
-        {
-          "type": "ExpansionPanel",
           "caption": "Solarprognose",
           "expanded": false,
           "items": [
@@ -382,18 +320,9 @@
       "expanded": false,
       "items": [
         {
-          "type": "Label",
-          "caption": "Die Freigaben gelten für die Symcon-Skriptbefehle. Das jeweilige Gerät muss die Modbus-Register unterstützen."
-        },
-        {
-          "type": "CheckBox",
-          "name": "AllowWallboxControl",
-          "caption": "Wallbox-Steuerbefehle am Hauptgerät erlauben"
-        },
-        {
           "type": "CheckBox",
           "name": "AllowBatteryControl",
-          "caption": "Zeitlich begrenzte Batterie-Leistungsvorgaben erlauben"
+          "caption": "Lokale RSCP-Schreibbefehle freigeben"
         }
       ]
     }
@@ -403,6 +332,238 @@
       "type": "Button",
       "caption": "Jetzt auslesen",
       "onClick": "E3DCF_Poll($id); E3DCF_PollRscpSolar($id);"
+    },
+    {
+      "type": "ExpansionPanel",
+      "caption": "RSCP-Gerätedetails",
+      "expanded": false,
+      "items": [
+        {
+          "type": "CheckBox",
+          "name": "DetailSecond",
+          "caption": "Zweites Farmgerät auswählen"
+        },
+        {
+          "type": "Select",
+          "name": "DetailGroup",
+          "caption": "Datengruppe",
+          "options": [
+            {
+              "value": "INFO",
+              "caption": "Geräteinformationen"
+            },
+            {
+              "value": "DCDC",
+              "caption": "DC/DC-Wandler"
+            },
+            {
+              "value": "EMS",
+              "caption": "Energiemanagement"
+            },
+            {
+              "value": "BAT",
+              "caption": "Batterie und Batteriemodule"
+            },
+            {
+              "value": "PVI",
+              "caption": "Wechselrichter"
+            },
+            {
+              "value": "PM",
+              "caption": "Leistungsmesser"
+            },
+            {
+              "value": "WB",
+              "caption": "Wallbox"
+            }
+          ]
+        },
+        {
+          "type": "NumberSpinner",
+          "name": "DetailIndex",
+          "caption": "Geräteindex",
+          "minimum": 0,
+          "maximum": 255
+        },
+        {
+          "type": "Button",
+          "caption": "RSCP-Details lesen",
+          "onClick": "try { echo E3DCF_ReadRscpDetails($id, $DetailSecond, $DetailGroup, $DetailIndex); } catch (Throwable $e) { echo $e->getMessage(); }"
+        },
+        {
+          "type": "Button",
+          "caption": "Alle Datengruppen für Index 0 lesen",
+          "onClick": "echo E3DCF_ReadRscpDeviceOverview($id, $DetailSecond);"
+        }
+      ]
+    },
+    {
+      "type": "ExpansionPanel",
+      "caption": "RSCP-Ladeeinstellungen",
+      "expanded": false,
+      "items": [
+        {
+          "type": "CheckBox",
+          "name": "ControlSecond",
+          "caption": "Zweites Farmgerät auswählen"
+        },
+        {
+          "type": "Select",
+          "name": "RscpSetting",
+          "caption": "Einstellung",
+          "options": [
+            {
+              "value": "Leistungslimits",
+              "caption": "Leistungslimits"
+            },
+            {
+              "value": "Ladelimit",
+              "caption": "Ladelimit"
+            },
+            {
+              "value": "Entladelimit",
+              "caption": "Entladelimit"
+            },
+            {
+              "value": "Entladeschwelle",
+              "caption": "Entladeschwelle"
+            },
+            {
+              "value": "Stromsparen",
+              "caption": "Stromsparen"
+            },
+            {
+              "value": "Wetterbasiertes Laden",
+              "caption": "Wetterbasiertes Laden"
+            },
+            {
+              "value": "Wallbox priorisieren",
+              "caption": "Wallbox priorisieren"
+            },
+            {
+              "value": "Batterie zur Wallbox entladen",
+              "caption": "Batterie zur Wallbox entladen"
+            }
+          ]
+        },
+        {
+          "type": "NumberSpinner",
+          "name": "RscpSettingValue",
+          "caption": "Wert in W, bei Schaltern 0 oder 1",
+          "minimum": 0,
+          "maximum": 100000
+        },
+        {
+          "type": "Button",
+          "caption": "Einstellung schreiben",
+          "onClick": "try { echo E3DCF_SetRscpSetting($id, $ControlSecond, $RscpSetting, $RscpSettingValue); } catch (Throwable $e) { echo $e->getMessage(); }",
+          "confirm": "Einstellung am ausgewählten E3/DC-Gerät ändern?"
+        },
+        {
+          "type": "NumberSpinner",
+          "name": "ManualChargeWh",
+          "caption": "Manuelle Ladung (Wh)",
+          "minimum": 1,
+          "maximum": 100000
+        },
+        {
+          "type": "Button",
+          "caption": "Manuelle Ladung starten",
+          "onClick": "try { echo E3DCF_SetRscpSetting($id, $ControlSecond, \"Manuelle Ladung (Wh)\", $ManualChargeWh); } catch (Throwable $e) { echo $e->getMessage(); }",
+          "confirm": "Die manuelle Ladung kann Netzstrom beziehen. Am ausgewählten Gerät starten?"
+        },
+        {
+          "type": "Button",
+          "caption": "Notstromtest starten",
+          "onClick": "try { echo E3DCF_SetRscpSetting($id, $ControlSecond, \"Notstromtest starten\", 1); } catch (Throwable $e) { echo $e->getMessage(); }",
+          "confirm": "Der Notstromtest kann die Stromversorgung unterbrechen. Test wirklich starten?"
+        }
+      ]
+    },
+    {
+      "type": "ExpansionPanel",
+      "caption": "Lade- und Entladesperrzeiten",
+      "expanded": false,
+      "items": [
+        {
+          "type": "CheckBox",
+          "name": "IdleSecond",
+          "caption": "Zweites Farmgerät auswählen"
+        },
+        {
+          "type": "Select",
+          "name": "IdleType",
+          "caption": "Sperre",
+          "options": [
+            {
+              "value": 0,
+              "caption": "Laden"
+            },
+            {
+              "value": 1,
+              "caption": "Entladen"
+            }
+          ]
+        },
+        {
+          "type": "Select",
+          "name": "IdleDay",
+          "caption": "Wochentag",
+          "options": [
+            {
+              "value": 0,
+              "caption": "Montag"
+            },
+            {
+              "value": 1,
+              "caption": "Dienstag"
+            },
+            {
+              "value": 2,
+              "caption": "Mittwoch"
+            },
+            {
+              "value": 3,
+              "caption": "Donnerstag"
+            },
+            {
+              "value": 4,
+              "caption": "Freitag"
+            },
+            {
+              "value": 5,
+              "caption": "Samstag"
+            },
+            {
+              "value": 6,
+              "caption": "Sonntag"
+            }
+          ]
+        },
+        {
+          "type": "CheckBox",
+          "name": "IdleActive",
+          "caption": "Sperrzeit aktiv"
+        },
+        {
+          "type": "ValidationTextBox",
+          "name": "IdleStart",
+          "caption": "Beginn (HH:MM)",
+          "value": "00:00"
+        },
+        {
+          "type": "ValidationTextBox",
+          "name": "IdleEnd",
+          "caption": "Ende (HH:MM)",
+          "value": "23:59"
+        },
+        {
+          "type": "Button",
+          "caption": "Sperrzeit schreiben",
+          "onClick": "try { echo E3DCF_SetRscpIdlePeriod($id, $IdleSecond, $IdleType, $IdleDay, $IdleActive, $IdleStart, $IdleEnd); } catch (Throwable $e) { echo $e->getMessage(); }",
+          "confirm": "Sperrzeit für den ausgewählten Wochentag ändern?"
+        }
+      ]
     }
   ],
   "status": [

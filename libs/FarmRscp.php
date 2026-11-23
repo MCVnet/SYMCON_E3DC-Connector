@@ -7,6 +7,7 @@ namespace E3DCConnector;
 use E3DCConnector\Crypto\Rijndael;
 use RuntimeException;
 
+require_once __DIR__ . '/RscpDetailCatalog.php';
 require_once __DIR__ . '/Rijndael/Base.php';
 require_once __DIR__ . '/Rijndael/Rijndael.php';
 
@@ -81,7 +82,7 @@ final class FarmRscp
         }
     }
 
-    public function readDevice(string $host, int $port, string $user, string $password): array
+    public function readDevice(string $host, int $port, string $user, string $password, bool $includeSpecification = true): array
     {
         $socket = $this->openSession($host, $port, $user, $password);
         try {
@@ -94,6 +95,9 @@ final class FarmRscp
             try {
                 $answer = $this->exchange($socket, $request);
             } catch (RuntimeException $error) {
+                if (!$includeSpecification) {
+                    throw $error;
+                }
                 // The device may reject bundled live requests but still support BAT_REQ_SPECIFICATION.
                 fclose($socket);
                 $socket = null;
@@ -117,11 +121,225 @@ final class FarmRscp
                 $live[$name] = (int) round($value);
             }
 
-            return ['live' => $live] + $this->readSpecification($socket);
+            return $includeSpecification ? ['live' => $live] + $this->readSpecification($socket) : $live;
         } finally {
             if ($socket !== null) {
                 fclose($socket);
             }
+        }
+    }
+
+    public function readLiveValues(string $host, int $port, string $user, string $password): array
+    {
+        return $this->readDevice($host, $port, $user, $password, false);
+    }
+
+    public function readDetails(string $host, int $port, string $user, string $password, string $group, int $index): array
+    {
+        if (!isset(RscpDetailCatalog::REQUESTS[$group]) || !in_array($group, ['INFO', 'EMS', 'DCDC', 'BAT', 'PVI', 'PM', 'WB'], true)
+            || $index < 0 || $index > 255) {
+            throw new RuntimeException('Ungültige RSCP-Datengruppe oder Index.');
+        }
+        $socket = $this->openSession($host, $port, $user, $password);
+        try {
+            $payload = '';
+            foreach (RscpDetailCatalog::REQUESTS[$group] as $tag) {
+                $payload .= self::element($tag, 0, '');
+            }
+            if ($group === 'EMS' || $group === 'INFO') {
+                return self::describe($this->exchange($socket, $payload));
+            }
+            [$request, $indexType] = ['BAT' => [0x03040000, 5], 'DCDC' => [0x04040000, 5], 'PVI' => [0x02040000, 5],
+                'PM' => [0x05040000, 5], 'WB' => [0x0E040000, 3]][$group];
+            $prefix = self::element($request + 1, $indexType, pack($indexType === 3 ? 'C' : 'v', $index));
+            $reply = $this->exchange($socket, self::element($request, self::CONTAINER, $prefix . $payload));
+            $data = $reply[$request + 0x00800000] ?? null;
+            if (($data[0] ?? null) !== self::CONTAINER) {
+                return self::describe($reply);
+            }
+            $more = '';
+            if ($group === 'BAT') {
+                $more = self::indexedRequests($data[1], 0x0380000D, 64, 5, RscpDetailCatalog::REQUESTS['DCB']);
+            } elseif ($group === 'PVI') {
+                $more = self::indexedRequests($data[1], 0x028AC000, 3, 3, RscpDetailCatalog::REQUESTS['PVI_AC'])
+                    . self::indexedRequests($data[1], 0x028DC000, 16, 3, RscpDetailCatalog::REQUESTS['PVI_DC'])
+                    . self::indexedRequests($data[1], 0x02800101, 64, 3, [0x02000100]);
+            }
+            $described = self::describe($reply);
+            if ($more !== '') {
+                try {
+                    $extra = $this->exchange($socket, self::element($request, self::CONTAINER, $prefix . $more));
+                    $described['Details je Modul, Phase oder String'] = self::describe($extra);
+                } catch (RuntimeException $error) {
+                    $described['Status Detailabfrage'] = $error->getMessage();
+                }
+            }
+            return $described;
+        } finally {
+            fclose($socket);
+        }
+    }
+
+    private static function indexedRequests(array $reply, int $countTag, int $maximum, int $type, array $tags): string
+    {
+        $count = isset($reply[$countTag]) ? (int) self::decodeEnergy($reply[$countTag]) : 0;
+        $payload = '';
+        for ($index = 0; $index < min($count, $maximum); $index++) {
+            foreach ($tags as $tag) {
+                $payload .= self::element($tag, $type, pack($type === 3 ? 'C' : 'v', $index));
+            }
+        }
+        return $payload;
+    }
+
+    private static function describe(array $elements): array
+    {
+        $result = [];
+        foreach ($elements as $key => [$type, $data]) {
+            $tag = $key & 0xFFFFFFFF;
+            $position = $key >> 32;
+            $label = RscpDetailCatalog::FIELDS[$tag] ?? sprintf('0x%08X', $tag);
+            if ($position > 0) {
+                $label .= ' #' . ($position + 1);
+            }
+            if ($type === self::ERROR) {
+                $label .= ' – Fehler';
+            }
+            $value = match ($type) {
+                self::CONTAINER => self::describe($data),
+                self::ERROR => ['RSCP-Fehler' => strlen($data) === 4 ? unpack('V', $data)[1] : -1],
+                1 => strlen($data) === 1 ? ord($data) !== 0 : null,
+                0x0D => rtrim($data, "\0"),
+                0x0C, 0x10 => bin2hex($data),
+                0x0F => strlen($data) === 12 ? unpack('P', $data)[1] : null,
+                default => self::decodeEnergy([$type, $data])
+            };
+            if ($value !== null && $value !== []) {
+                $result[$label] = $value;
+            }
+        }
+        return $result;
+    }
+
+    public function readIdentity(string $host, int $port, string $user, string $password): array
+    {
+        $socket = $this->openSession($host, $port, $user, $password);
+        try {
+            $reply = $this->exchange($socket, self::element(0x0A000001, 0, '') . self::element(0x0A000019, 0, ''));
+            $serial = $reply[0x0A800001] ?? null;
+            $firmware = $reply[0x0A800019] ?? null;
+            return [
+                'serial' => ($serial[0] ?? null) === 0x0D ? rtrim($serial[1], "\0") : '',
+                'firmware' => ($firmware[0] ?? null) === 0x0D ? rtrim($firmware[1], "\0") : ''
+            ];
+        } finally {
+            fclose($socket);
+        }
+    }
+
+    public function writeSetting(string $host, int $port, string $user, string $password, string $setting, int $value): void
+    {
+        $specification = [
+            'Leistungslimits' => [0x01000100, 1, 1, 0x01800100],
+            'Ladelimit' => [0x01000101, 7, 100000, 0x01800101],
+            'Entladelimit' => [0x01000102, 7, 100000, 0x01800102],
+            'Entladeschwelle' => [0x01000103, 7, 100000, 0x01800103],
+            'Stromsparen' => [0x01000104, 3, 1, 0x01800104],
+            'Wetterbasiertes Laden' => [0x01000105, 3, 1, 0x01800105],
+            'Wallbox priorisieren' => [0x01000078, 3, 1, 0],
+            'Batterie zur Wallbox entladen' => [0x01000076, 3, 1, 0],
+            'Manuelle Ladung (Wh)' => [0x0100008F, 7, 100000, 0],
+            'Notstromtest starten' => [0x01000090, 1, 1, 0]
+        ][$setting] ?? null;
+        if ($specification === null || $value < 0 || $value > $specification[2]
+            || (in_array($setting, ['Manuelle Ladung (Wh)', 'Notstromtest starten'], true) && $value === 0)) {
+            throw new RuntimeException('Ungültige Einstellung oder Wert außerhalb des erlaubten Bereichs.');
+        }
+        [$tag, $type, , $resultTag] = $specification;
+        $data = $setting === 'Wallbox priorisieren' ? 1 - $value : $value;
+        $command = self::element($tag, $type, pack($type === 7 ? 'V' : 'C', $data));
+        $socket = $this->openSession($host, $port, $user, $password);
+        try {
+            if ($resultTag !== 0) {
+                $response = $this->exchange($socket, self::element(0x0100008C, self::CONTAINER, $command))[0x0180008C] ?? null;
+                $ack = ($response[0] ?? null) === self::CONTAINER ? ($response[1][$resultTag] ?? null) : null;
+                $code = $ack !== null ? self::decodeEnergy($ack) : null;
+                if ($code !== 0 && (!in_array($setting, ['Ladelimit', 'Entladelimit'], true) || $code !== 1)) {
+                    throw new RuntimeException('Das E3/DC-Gerät hat die Einstellung nicht bestätigt.');
+                }
+            } else {
+                $response = $this->exchange($socket, $command)[$tag + 0x00800000] ?? null;
+                if ($response === null || $response[0] === self::ERROR
+                    || ($tag === 0x0100008F && ($response[1] === '' || ord($response[1][0]) !== 1))) {
+                    throw new RuntimeException('Das E3/DC-Gerät hat den Befehl nicht bestätigt.');
+                }
+            }
+        } finally {
+            fclose($socket);
+        }
+    }
+
+    public function writeBatteryPower(string $host, int $port, string $user, string $password, int $watts, bool $automatic = false): void
+    {
+        if ($watts < -100000 || $watts > 100000) {
+            throw new RuntimeException('Batterie-Sollleistung außerhalb des erlaubten Bereichs.');
+        }
+        $socket = $this->openSession($host, $port, $user, $password);
+        try {
+            $mode = $automatic ? 0 : ($watts < 0 ? 2 : ($watts > 0 ? 3 : 1));
+            $request = self::element(0x01000031, 3, chr($mode)) . self::element(0x01000032, 6, pack('V', abs($watts)));
+            $response = $this->exchange($socket, self::element(0x01000030, self::CONTAINER, $request))[0x01800030] ?? null;
+            if ($response === null || self::decodeEnergy($response) !== abs($watts)) {
+                throw new RuntimeException('Das E3/DC-Gerät hat die Batterie-Sollleistung nicht bestätigt.');
+            }
+        } finally {
+            fclose($socket);
+        }
+    }
+
+    public function writeIdlePeriod(string $host, int $port, string $user, string $password, int $type, int $day, bool $active, string $start, string $end): void
+    {
+        if ($type < 0 || $type > 1 || $day < 0 || $day > 6
+            || !preg_match('/^(?:[01][0-9]|2[0-3]):[0-5][0-9]$/D', $start)
+            || !preg_match('/^(?:[01][0-9]|2[0-3]):[0-5][0-9]$/D', $end)) {
+            throw new RuntimeException('Sperrzeit ungültig. Uhrzeiten im Format HH:MM eingeben.');
+        }
+        $clock = static function (string $time): string {
+            [$hour, $minute] = explode(':', $time);
+            return self::element(0x01000087, 3, chr((int) $hour)) . self::element(0x01000088, 3, chr((int) $minute));
+        };
+        $period = self::element(0x01000083, 3, chr($type)) . self::element(0x01000084, 3, chr($day))
+            . self::element(0x01000089, 1, chr((int) $active))
+            . self::element(0x01000085, self::CONTAINER, $clock($start))
+            . self::element(0x01000086, self::CONTAINER, $clock($end));
+        $request = self::element(0x01000081, self::CONTAINER, self::element(0x01000082, self::CONTAINER, $period));
+        $socket = $this->openSession($host, $port, $user, $password);
+        try {
+            $response = $this->exchange($socket, $request)[0x01800081] ?? null;
+            if ($response === null || $response[0] === self::ERROR) {
+                throw new RuntimeException('Das E3/DC-Gerät hat die Sperrzeit nicht bestätigt.');
+            }
+            $readback = $this->exchange($socket, self::element(0x01000080, 0, ''))[0x01800080] ?? null;
+            if (($readback[0] ?? null) !== self::CONTAINER) {
+                throw new RuntimeException('Die Sperrzeit konnte nicht zurückgelesen werden.');
+            }
+            foreach ($readback[1] as $tag => [$format, $fields]) {
+                if (($tag & 0xFFFFFFFF) !== 0x01000082 || $format !== self::CONTAINER
+                    || ($fields[0x01000083][1] ?? '') !== chr($type) || ($fields[0x01000084][1] ?? '') !== chr($day)) {
+                    continue;
+                }
+                $actualClock = static function (array $fields): string {
+                    return sprintf('%02d:%02d', ord($fields[0x01000087][1] ?? "\xFF"), ord($fields[0x01000088][1] ?? "\xFF"));
+                };
+                if (($fields[0x01000089][1] ?? '') === chr((int) $active)
+                    && $actualClock($fields[0x01000085][1] ?? []) === $start
+                    && $actualClock($fields[0x01000086][1] ?? []) === $end) {
+                    return;
+                }
+            }
+            throw new RuntimeException('Die zurückgelesene Sperrzeit entspricht nicht der Vorgabe.');
+        } finally {
+            fclose($socket);
         }
     }
 
@@ -278,6 +496,9 @@ final class FarmRscp
                 throw new RuntimeException('RSCP-Datenelement ist unvollständig.');
             }
             $value = substr($data, $offset + 7, $length);
+            while (isset($values[$tag])) {
+                $tag += 0x100000000;
+            }
             $values[$tag] = [$type, $type === self::CONTAINER ? self::parseElements($value, $depth + 1) : $value];
         }
         return $values;

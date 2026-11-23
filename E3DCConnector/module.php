@@ -63,34 +63,24 @@ class E3DCConnector extends IPSModule
         $this->RegisterPropertyBoolean('ReadRscpSolar', false);
         $this->RegisterPropertyInteger('FarmRscpPort', 5034);
         $this->RegisterPropertyInteger('DeviceRscpPort', 5033);
+        $this->RegisterPropertyInteger('RscpDetailInterval', 300);
         $this->RegisterPropertyString('FarmRscpUser', 'local.user');
         $this->RegisterPropertyString('FarmRscpPassword', '');
         $this->RegisterPropertyString('FarmRscpKey', '');
         $this->RegisterAttributeInteger('RscpSolarReadAt', 0);
         $this->RegisterTimer('RscpSolarTimer', 0, 'if (IPS_InstanceExists($_IPS["TARGET"])) { E3DCF_PollRscpSolar($_IPS["TARGET"]); }');
-        $this->RegisterPropertyInteger('Port', 502);
-        $this->RegisterPropertyInteger('Unit', 1);
         $this->RegisterPropertyInteger('Interval', 15);
-        $this->RegisterPropertyBoolean('AutoFarmDevices', true);
-        $this->RegisterPropertyBoolean('ReadWallbox', true);
         $this->RegisterPropertyString('AccessoryNames', '{}');
         $this->RegisterPropertyString('AccessoryOptions', '[]');
-        $this->RegisterPropertyInteger('BackupReservePercent', 0);
-        $this->RegisterPropertyBoolean('AllowWallboxControl', false);
         $this->RegisterPropertyBoolean('AllowBatteryControl', false);
-        $this->RegisterPropertyInteger('WallboxSlot', -1);
-        $this->RegisterPropertyInteger('FarmConsumptionMeter', -1);
-        $this->RegisterPropertyBoolean('FarmMeterIsConsumption', false);
-        $this->RegisterPropertyInteger('HeatPumpMeter', -1);
         $this->RegisterPropertyString('AdditionalConsumerName', '');
         $this->RegisterPropertyInteger('SecondOne', 0);
         $this->RegisterPropertyString('SecondHost', '');
         $this->RegisterPropertyString('LanNetwork', '');
-        $this->RegisterPropertyInteger('SecondCapacityFallbackWh', 0);
         $this->RegisterPropertyInteger('ForecastSource', 0);
-        $this->RegisterPropertyInteger('CapacityFallbackWh', 0);
         $this->RegisterAttributeString('DailyTotals', '{}');
         $this->RegisterTimer('PollTimer', 0, 'if (IPS_InstanceExists($_IPS["TARGET"])) { E3DCF_Poll($_IPS["TARGET"]); }');
+        $this->RegisterTimer('RscpDetailsTimer', 0, 'if (IPS_InstanceExists($_IPS["TARGET"])) { E3DCF_PollRscpDetails($_IPS["TARGET"]); }');
         $this->RegisterTimer('InitialPollTimer', 0, 'if (IPS_InstanceExists($_IPS["TARGET"])) { E3DCF_RunInitialPoll($_IPS["TARGET"]); }');
 
         $this->maintainGroupedVariables();
@@ -122,7 +112,7 @@ class E3DCConnector extends IPSModule
         $this->maintainGroupedVariable('FarmHouseConsumption', 'Hausverbrauch ohne Zusatzverbrauch (W)', '', VARIABLETYPE_INTEGER);
         $this->maintainGroupedVariable('FarmMeterPower', 'Leistung am Farmzähler (W)', '', VARIABLETYPE_INTEGER);
         $this->maintainGroupedVariable('RscpDayEnergy', 'RSCP-Tagessummen (Wh)', '', VARIABLETYPE_STRING);
-        $this->maintainGroupedVariable('DayPVEstimate', 'Solarproduktion heute – Modbus-Summe (kWh)', '', VARIABLETYPE_FLOAT);
+        $this->maintainGroupedVariable('DayPVEstimate', 'Solarproduktion aus Live-Werten (kWh)', '', VARIABLETYPE_FLOAT);
         $this->maintainGroupedVariable('DayPVSource', 'Datenquelle Solarproduktion', '', VARIABLETYPE_STRING);
         $this->maintainGroupedVariable('RscpSolarStatus', 'Status der RSCP-Tagesabfrage', '', VARIABLETYPE_STRING);
         $this->maintainGroupedVariable('DayBalanceStart', 'Verbrauchs- und Netzbilanz erfasst seit', '~UnixTimestamp', VARIABLETYPE_INTEGER);
@@ -194,6 +184,12 @@ class E3DCConnector extends IPSModule
             IPS_SetName($this->InstanceID, 'E3/DC Connector');
         }
         $this->maintainGroupedVariables();
+        foreach (self::OBSOLETE_MODBUS as $ident) {
+            $variable = $this->findGroupedVariable($ident, $this->InstanceID);
+            if ($variable !== false) {
+                IPS_SetHidden($variable, true);
+            }
+        }
         $this->updateOperatingLayout();
         $this->setGroupedValue('AdditionalConsumerValid', false);
         $this->updateAdditionalConsumer(false);
@@ -201,6 +197,7 @@ class E3DCConnector extends IPSModule
         $this->SetTimerInterval('InitialPollTimer', 0);
         $this->SetTimerInterval('PollTimer', 0);
         $this->SetTimerInterval('RscpSolarTimer', 0);
+        $this->SetTimerInterval('RscpDetailsTimer', 0);
         $this->WriteAttributeInteger('RscpSolarReadAt', 0);
         $this->setGroupedValue('RscpSolarStatus', 'RSCP-Tagesertrag deaktiviert');
         $this->publishSolarFallback();
@@ -235,6 +232,9 @@ class E3DCConnector extends IPSModule
         if ($this->ReadPropertyBoolean('ReadRscpSolar')) {
             $this->setGroupedValue('RscpSolarStatus', 'RSCP-Abfrage ausstehend');
             $this->SetTimerInterval('RscpSolarTimer', 60000);
+            if ($this->ReadPropertyInteger('RscpDetailInterval') > 0) {
+                $this->SetTimerInterval('RscpDetailsTimer', 1000);
+            }
         }
     }
 
@@ -284,6 +284,11 @@ class E3DCConnector extends IPSModule
     ];
 
     private const FARM_GROUPS = ['Farm', 'FarmStorage', 'Second', 'SecondStorage'];
+    private const OBSOLETE_MODBUS = ['ModbusVersion', 'RegisterCount', 'EfficiencyRaw', 'EMSFlags', 'EMS',
+        'SGReadyState', 'SGReadyValid', 'Emergency', 'EmergencyState', 'PowerMeters', 'DCStrings',
+        'Inverters', 'RemoteStatus', 'WallboxPhaseMode', 'WallboxDetails', 'DetectedFarmDevices',
+        'FarmMeterPower', 'HeatPumpConsumption', 'AdditionalConsumerValid', 'FarmHouseConsumption', 'DayHeatPump'];
+
 
     private function variableLocation(string $ident): array
     {
@@ -301,6 +306,9 @@ class E3DCConnector extends IPSModule
 
     private function shouldCreateVariable(string $ident, string $groupIdent): bool
     {
+        if (in_array($ident, self::OBSOLETE_MODBUS, true)) {
+            return false;
+        }
         if (in_array($ident, ['LanSetupStatus', 'DataStatus', 'OperatingModeStatus'], true)) {
             return true;
         }
@@ -527,6 +535,10 @@ class E3DCConnector extends IPSModule
         if (!$this->ReadPropertyBoolean('Active')) {
             return 'Instanz ist deaktiviert. Für die LAN-Suche zuerst aktivieren.';
         }
+        $port = $this->ReadPropertyInteger('DeviceRscpPort');
+        if ($this->rscpCredentials() === null) {
+            return 'Zuerst lokales RSCP aktivieren und die Zugangsdaten übernehmen.';
+        }
         $mode = in_array($mode, ['auto', 'standalone', 'farm'], true) ? $mode : $this->ReadPropertyString('OperatingMode');
         $result = $this->findDevices($network, $master, $port, $unit, $mode);
         if (!isset($result['master'])) {
@@ -543,8 +555,7 @@ if (!IPS_InstanceExists($id) || !IPS_VariableExists($statusId)) {
 $settings = [
     'Host' => $_IPS['OneMaster'],
     'OperatingMode' => $_IPS['OperatingMode'],
-    'Port' => $_IPS['OnePort'],
-    'Unit' => $_IPS['OneUnit']
+    'DeviceRscpPort' => $_IPS['OnePort']
 ];
 if ($_IPS['OneSecond'] !== '') {
     $settings['SecondHost'] = $_IPS['OneSecond'];
@@ -567,8 +578,7 @@ PHP;
             'OneMaster' => $result['master'],
             'OperatingMode' => $result['mode'],
             'OneSecond' => $result['second'],
-            'OnePort' => $result['port'],
-            'OneUnit' => $result['unit']
+            'OnePort' => $result['port']
         ]);
         if (!$started) {
             $this->setGroupedValue('LanSetupStatus', 'Automatische Übernahme konnte nicht gestartet werden.');
@@ -615,14 +625,10 @@ PHP;
             return ['message' => 'Symcon hat keine nutzbare lokale IPv4-Adresse gefunden. Bei Docker oder VLAN das LAN-Suchnetz angeben.'];
         }
         if ($port === 0) {
-            $port = $this->ReadPropertyInteger('Port');
-            $unit = $this->ReadPropertyInteger('Unit');
+            $port = $this->ReadPropertyInteger('DeviceRscpPort');
         }
         if ($port < 1 || $port > 65535) {
-            return ['message' => 'Modbus-TCP-Port zwischen 1 und 65535 eingeben.'];
-        }
-        if ($unit < 0 || $unit > 255) {
-            return ['message' => 'Modbus Unit-ID zwischen 0 und 255 eingeben.'];
+            return ['message' => 'RSCP-Port zwischen 1 und 65535 eingeben.'];
         }
         $masterIp = $savedMaster !== '' ? $savedMaster : trim($master);
         $matches = [];
@@ -639,8 +645,8 @@ PHP;
             $matches += $this->scanDeviceSubnet($prefix, $port, $unit, $mode !== 'standalone');
         }
         if ($matches === []) {
-            return ['message' => sprintf('Kein E3/DC-Gerät im Modbus Simple Mode gefunden. Geprüft: %s (Port %d, Unit-ID %d).',
-                implode(', ', $searched), $port, $unit)];
+            return ['message' => sprintf('Kein E3/DC-Gerät mit erfolgreicher RSCP-Anmeldung gefunden. Geprüft: %s (RSCP-Port %d).',
+                implode(', ', $searched), $port)];
         }
 
         $lines = [];
@@ -667,8 +673,7 @@ PHP;
             return ['message' => $summary . "\n" . $caption, 'master' => $host, 'second' => '',
                 'mode' => $detectedMode, 'port' => $port, 'unit' => $unit];
         }
-        if (count($matches) !== 2 || count(array_filter($matches,
-            static fn (array $device): bool => strcasecmp($device['model'], 'one') === 0)) !== 2) {
+        if (count($matches) !== 2) {
             return ['message' => $summary . "\n\nBitte Hauptgerät und gegebenenfalls das zweite Farmgerät anhand der Treffer eintragen."];
         }
         $serials = array_column($matches, 'serial');
@@ -743,24 +748,27 @@ PHP;
                             if (@stream_socket_get_name($socket, true) === false) {
                                 continue;
                             }
-                            stream_set_blocking($socket, true);
-                            stream_set_timeout($socket, 0, 300000);
-                            if ($this->readRegisters($socket, $unit, 1, 40001, 1)[0] !== 0xE3DC) {
+                            $identity = $this->discoverIdentity($host, $port);
+                            if ($identity === null) {
                                 continue;
                             }
-                            $matches[$host] = ['model' => '', 'serial' => '', 'farmMeter' => false];
-                            usleep(110000);
-                            $identity = $this->readRegisters($socket, $unit, 2, 40020, 32);
-                            $matches[$host]['model'] = $this->decodeText(array_slice($identity, 0, 16));
-                            $matches[$host]['serial'] = $this->decodeText(array_slice($identity, 16, 16));
-                            if ($identifyMaster) {
-                                usleep(110000);
-                                $meters = $this->readRegisters($socket, $unit, 3, 40105, 32);
-                                $matches[$host]['farmMeter'] = in_array(5, array_filter($meters,
-                                    static fn (int $index): bool => $index % 4 === 0, ARRAY_FILTER_USE_KEY), true);
+                            $identity['model'] = '';
+                            $identity['farmMeter'] = false;
+                            $farmPort = $this->ReadPropertyInteger('FarmRscpPort');
+                            $credentials = $this->rscpCredentials();
+                            if ($identifyMaster && $farmPort !== $port && $credentials !== null) {
+                                try {
+                                    [$user, $password, $key] = $credentials;
+                                    $day = (new DateTimeImmutable(date('Y-m-d'), new DateTimeZone('UTC')))->getTimestamp();
+                                    $data = (new \E3DCConnector\FarmRscp($key))->readDayEnergyWh($host, $farmPort, $user, $password, $day);
+                                    $identity['farmMeter'] = isset($data['DB_DC_POWER']);
+                                } catch (RuntimeException) {
+                                    // This address has no accessible farm history endpoint.
+                                }
                             }
+                            $matches[$host] = $identity;
                         } catch (RuntimeException $error) {
-                            // The port can be open on devices that do not speak E3/DC Modbus.
+                            // The port can be open on devices that do not answer as an E3/DC RSCP endpoint.
                         } finally {
                             fclose($socket);
                         }
@@ -778,17 +786,20 @@ PHP;
 
     private function verifyMasterForDiscovery(string $host, int $port, int $unit): bool
     {
-        $socket = @stream_socket_client('tcp://' . $host . ':' . $port, $errorCode, $errorText, 1.0);
-        if ($socket === false) {
-            return false;
+        return $this->discoverIdentity($host, $port) !== null;
+    }
+
+    private function discoverIdentity(string $host, int $port): ?array
+    {
+        $credentials = $this->rscpCredentials();
+        if ($credentials === null) {
+            return null;
         }
+        [$user, $password, $key] = $credentials;
         try {
-            stream_set_timeout($socket, 1);
-            return $this->readRegisters($socket, $unit, 1, 40001, 1)[0] === 0xE3DC;
-        } catch (RuntimeException $error) {
-            return false;
-        } finally {
-            fclose($socket);
+            return (new \E3DCConnector\FarmRscp($key))->readIdentity($host, $port, $user, $password);
+        } catch (RuntimeException) {
+            return null;
         }
     }
 
@@ -839,7 +850,8 @@ PHP;
         if (!$this->ReadPropertyBoolean('Active')) {
             return;
         }
-        if (!filter_var($this->ReadPropertyString('Host'), FILTER_VALIDATE_IP)) {
+        $host = trim($this->ReadPropertyString('Host'));
+        if (!filter_var($host, FILTER_VALIDATE_IP)) {
             $this->setGroupedValue('DataStatus', 'IP-Adresse des Hauptgeräts fehlt oder ist ungültig.');
             return;
         }
@@ -850,72 +862,128 @@ PHP;
 
         try {
             $this->publishExternalSystems();
-            $this->setGroupedValue('FarmConsumptionValid', false);
-            $this->setGroupedValue('AdditionalConsumerValid', false);
-            $host = trim($this->ReadPropertyString('Host'));
-            $port = $this->ReadPropertyInteger('Port');
-            $unit = $this->ReadPropertyInteger('Unit');
-            if (!filter_var($host, FILTER_VALIDATE_IP) || $port < 1 || $port > 65535 || $unit < 0 || $unit > 255) {
-                throw new RuntimeException('IP-Adresse, Port oder Unit-ID ungültig.');
-            }
-
             $notes = [];
-            $this->setGroupedValue('RscpCapacityValid', false);
-            $this->setGroupedValue('SecondRscpCapacityValid', false);
-            $rscp = $this->readLocalRscpDevice($host, false, $notes);
-            $registers = $this->mergeRscpCore([], $rscp);
-
-            $address = str_contains($host, ':') ? '[' . $host . ']' : $host;
-            $socket = @stream_socket_client('tcp://' . $address . ':' . $port, $errorCode, $errorText, 2.0);
-            if ($socket !== false) {
-                try {
-                    stream_set_timeout($socket, 2);
-                    if ($this->readRegisters($socket, $unit, 1, 40001, 1)[0] !== 0xE3DC) {
-                        throw new RuntimeException('E3/DC Simple Mode wurde nicht erkannt.');
+            foreach (['FarmConsumptionValid', 'AdditionalConsumerValid', 'FarmPowerValid', 'FarmBatteryValid',
+                'BatteryEnergyValid', 'SecondOneValid', 'RscpCapacityValid', 'SecondRscpCapacityValid',
+                'SGReadyValid', 'WallboxAvailable', 'OneEfficiencyValid'] as $ident) {
+                $this->setGroupedValue($ident, false);
+            }
+            $live = $this->readLocalRscpDevice($host, false, $notes);
+            if ($live !== []) {
+                $this->publishRscpLive($live);
+            }
+            $farmValid = false;
+            $farm = [];
+            if ($this->isFarmMode()) {
+                $peer = trim($this->ReadPropertyString('SecondHost'));
+                if ($peer === '') {
+                    $peer = $this->legacyPeerHost();
+                }
+                if (filter_var($peer, FILTER_VALIDATE_IP) && inet_pton($peer) !== inet_pton($host)) {
+                    $second = $this->readLocalRscpDevice($peer, true, $notes);
+                    foreach (['PV' => 'SecondPV', 'Battery' => 'SecondBattery', 'SOC' => 'SecondSOC'] as $field => $ident) {
+                        if (isset($second[$field])) {
+                            $this->setGroupedValue($ident, $second[$field]);
+                        }
                     }
-                    $transaction = 2;
-                    $modbus = $this->readCore($socket, $unit, $transaction, $notes);
-                    $registers = $this->mergeRscpCore($modbus, $rscp);
-                    $this->publishCore($registers);
-                    $this->readDetails($socket, $unit, $transaction, $notes, $registers[15] ?? -1);
-                } catch (RuntimeException $error) {
-                    $notes['Modbus'] = $error->getMessage();
-                } finally {
-                    fclose($socket);
+                    $this->setGroupedValue('SecondOneValid', isset($second['PV'], $second['Battery']));
                 }
+                $farm = $this->readRscpFarmLive($host, $notes);
+                $farmValid = $this->publishRscpFarmLive($farm);
+            }
+            $this->publishJson('ReadNotes', $notes);
+            $valid = isset($live['PV'], $live['Battery'], $live['House'], $live['Grid']);
+            $this->publishDaily($farmValid, $valid ? $this->mergeRscpCore([], $live) : null, isset($farm['WallboxPower']));
+            if ($valid || $farmValid) {
+                $this->setGroupedValue('LastSuccess', time());
+                $this->setGroupedValue('DataStatus', 'Messwerte über lokales RSCP aktualisiert.');
+                $this->SetStatus(102);
             } else {
-                $notes['Modbus'] = 'TCP-Verbindung fehlgeschlagen (Fehler ' . $errorCode . ').';
+                $this->setGroupedValue('DataStatus', $notes['RSCP Hauptgerät'] ?? 'Keine vollständige RSCP-Live-Antwort.');
+                $this->SetStatus(201);
             }
-            if (isset($notes['Modbus'])) {
-                if (!isset($registers[0], $registers[2], $registers[4], $registers[6])) {
-                    throw new RuntimeException($notes['Modbus'] . ' ' . ($notes['RSCP Hauptgerät'] ?? 'RSCP-Grundwerte fehlen.'));
-                }
-                $this->publishCore($registers);
-                foreach (['FarmPowerValid', 'FarmBatteryValid', 'SecondOneValid', 'WallboxAvailable', 'SGReadyValid', 'BatteryEnergyValid'] as $ident) {
-                    $this->setGroupedValue($ident, false);
-                }
-                $this->publishAccessories([]);
-                $this->publishJson('ReadNotes', $notes);
-            }
-            $this->setGroupedValue('LastSuccess', time());
-            $this->publishDaily($this->isFarmMode() && $this->getGroupedValue('FarmPowerValid'), $registers);
-            $this->setGroupedValue('DataStatus', $rscp === [] ? 'Messwerte aktualisiert (Modbus)' : 'Messwerte aktualisiert (RSCP bevorzugt)');
-            $this->SetStatus(102);
-        } catch (RuntimeException $error) {
-            $this->publishAccessories([]);
-            $this->setGroupedValue('FarmBatteryValid', false);
-            $this->setGroupedValue('BatteryEnergyValid', false);
-            $this->setGroupedValue('FarmPowerValid', false);
-            $this->setGroupedValue('SecondOneValid', false);
-            $this->setGroupedValue('SGReadyValid', false);
-            $this->setGroupedValue('OneEfficiencyValid', false);
-            $this->setGroupedValue('WallboxAvailable', false);
-            $this->publishDaily(false);
-            $this->setGroupedValue('DataStatus', $error->getMessage());
-            $this->SetStatus(201);
         } finally {
             IPS_SemaphoreLeave($lock);
         }
+    }
+
+    private function rscpCredentials(): ?array
+    {
+        if (!$this->ReadPropertyBoolean('ReadRscpSolar')) {
+            return null;
+        }
+        $user = trim($this->ReadPropertyString('FarmRscpUser'));
+        $password = $this->ReadPropertyString('FarmRscpPassword');
+        $key = $this->ReadPropertyString('FarmRscpKey');
+        return $user !== '' && $password !== '' && $key !== '' ? [$user, $password, $key] : null;
+    }
+
+    private function legacyPeerHost(): string
+    {
+        $peer = $this->ReadPropertyInteger('SecondOne');
+        if ($peer <= 0 || $peer === $this->InstanceID || !IPS_InstanceExists($peer)
+            || (IPS_GetInstance($peer)['ModuleInfo']['ModuleID'] ?? null) !== '{AAEF96D2-6F24-4FF9-9C9C-C7FECE2C1559}') {
+            return '';
+        }
+        $settings = $this->decodeJsonArray(@IPS_GetConfiguration($peer));
+        return is_string($settings['Host'] ?? null) ? trim($settings['Host']) : '';
+    }
+
+    private function publishRscpLive(array $live): void
+    {
+        foreach (array_keys(self::POWER + ['SOC' => '']) as $ident) {
+            if (isset($live[$ident])) {
+                $this->setGroupedValue($ident, $live[$ident]);
+            }
+        }
+        if (isset($live['Battery'])) {
+            $this->setGroupedValue('BatteryChargePower', max(0, $live['Battery']));
+            $this->setGroupedValue('BatteryDischargePower', max(0, -$live['Battery']));
+        }
+        if (isset($live['Grid'])) {
+            $this->setGroupedValue('GridImport', max(0, $live['Grid']));
+            $this->setGroupedValue('GridExport', max(0, -$live['Grid']));
+        }
+    }
+
+    private function readRscpFarmLive(string $host, array &$notes): array
+    {
+        $credentials = $this->rscpCredentials();
+        if ($credentials === null) {
+            return [];
+        }
+        [$user, $password, $key] = $credentials;
+        try {
+            return (new \E3DCConnector\FarmRscp($key))->readLiveValues($host, $this->ReadPropertyInteger('FarmRscpPort'), $user, $password);
+        } catch (RuntimeException $error) {
+            $notes['RSCP Farmcontroller'] = $error->getMessage();
+            return [];
+        }
+    }
+
+    private function publishRscpFarmLive(array $live): bool
+    {
+        foreach (['PV' => 'FarmPV', 'Battery' => 'FarmBatteryPower', 'House' => 'FarmConsumption',
+            'Grid' => 'FarmGrid', 'WallboxPower' => 'FarmWallboxPower'] as $field => $ident) {
+            if (isset($live[$field])) {
+                $this->setGroupedValue($ident, $live[$field]);
+            }
+        }
+        if (isset($live['Battery'])) {
+            $this->setGroupedValue('FarmBatteryChargePower', max(0, $live['Battery']));
+            $this->setGroupedValue('FarmBatteryDischargePower', max(0, -$live['Battery']));
+        }
+        if (isset($live['Grid'])) {
+            $this->setGroupedValue('FarmGridImport', max(0, $live['Grid']));
+            $this->setGroupedValue('FarmGridExport', max(0, -$live['Grid']));
+        }
+        $valid = isset($live['PV'], $live['Battery'], $live['House'], $live['Grid']);
+        $this->setGroupedValue('FarmPowerValid', $valid);
+        $this->setGroupedValue('FarmConsumptionValid', isset($live['House']));
+        if ($valid && $live['House'] > 0) {
+            $this->setGroupedValue('FarmAutarky', round(100 * max(0, $live['House'] - max(0, $live['Grid'])) / $live['House'], 1));
+        }
+        return $valid;
     }
 
     private function readLocalRscpDevice(string $host, bool $second, array &$notes): array
@@ -971,312 +1039,6 @@ PHP;
             $registers[15] = $live['SOC'];
         }
         return $registers;
-    }
-
-    private function readCore($socket, int $unit, int &$transaction, array &$notes): array
-    {
-        usleep(110000);
-        try {
-            return $this->readRegisters($socket, $unit, $transaction++, 40068, 18);
-        } catch (RuntimeException $error) {
-            if (!str_starts_with($error->getMessage(), 'Modbus-Ausnahme ')) {
-                throw $error;
-            }
-        }
-        usleep(110000);
-        $core = $this->readRegisters($socket, $unit, $transaction++, 40068, 8);
-        foreach ([8 => 2, 10 => 2, 12 => 2, 14 => 1, 15 => 1, 16 => 1, 17 => 1] as $offset => $count) {
-            usleep(110000);
-            try {
-                $values = $this->readRegisters($socket, $unit, $transaction++, 40068 + $offset, $count);
-                foreach ($values as $index => $value) {
-                    $core[$offset + $index] = $value;
-                }
-            } catch (RuntimeException $error) {
-                if (!str_starts_with($error->getMessage(), 'Modbus-Ausnahme ')) {
-                    throw $error;
-                }
-                $notes['Register ' . (40068 + $offset)] = $error->getMessage();
-            }
-        }
-        return $core;
-    }
-
-    private function publishCore(array $registers): void
-    {
-        $index = 0;
-        foreach (self::POWER as $ident => $label) {
-            if (isset($registers[$index])) {
-                $this->setGroupedValue($ident, $this->signed32($registers, $index));
-            }
-            $index += 2;
-        }
-        $battery = $this->getGroupedValue('Battery');
-        $grid = $this->getGroupedValue('Grid');
-        $this->setGroupedValue('BatteryChargePower', max(0, $battery));
-        $this->setGroupedValue('BatteryDischargePower', max(0, -$battery));
-        $this->setGroupedValue('GridImport', max(0, $grid));
-        $this->setGroupedValue('GridExport', max(0, -$grid));
-        if (isset($registers[15])) {
-            $this->setGroupedValue('SOC', $registers[15]);
-        }
-        $this->setGroupedValue('Emergency', $registers[16] ?? 0);
-        $this->setGroupedValue('EmergencyState', match ($registers[16] ?? -1) {
-            -1 => 'Nicht verfügbar',
-            0 => 'Nicht unterstützt',
-            1 => 'Aktiv',
-            2 => 'Nicht aktiv',
-            3 => 'Nicht verfügbar',
-            4 => 'Motorschalter außerhalb Normalstellung',
-            default => 'Unbekannter Status (' . $registers[16] . ')'
-        });
-        $efficiency = $registers[14] ?? 0xFFFF;
-        $this->setGroupedValue('EfficiencyRaw', sprintf('0x%04X', $efficiency));
-        $autarky = $efficiency >> 8;
-        $selfConsumption = $efficiency & 0xFF;
-        $valid = $autarky <= 100 && $selfConsumption <= 100;
-        if ($valid) {
-            $this->setGroupedValue('OneAutarky', $autarky);
-            $this->setGroupedValue('OneSelfConsumption', $selfConsumption);
-        }
-        $this->setGroupedValue('OneEfficiencyValid', $valid);
-        $ems = $registers[17] ?? 0;
-        $this->setGroupedValue('EMS', $ems);
-        $flags = [];
-        foreach (['Laden gesperrt', 'Entladen gesperrt', 'Notstrom möglich',
-            'Wetterbasiertes Laden', 'Einspeisung abgeregelt', 'Ladesperrzeit',
-            'Entladesperrzeit'] as $bit => $label) {
-            $flags[$label] = ($ems & (1 << $bit)) !== 0;
-        }
-        $this->publishJson('EMSFlags', $flags);
-    }
-
-    private function readDetails($socket, int $unit, int $transaction, array $notes, int $soc): void
-    {
-        $connectionUsable = true;
-        $read = function (string $label, int $start, int $count) use ($socket, $unit, &$transaction, &$notes, &$connectionUsable): ?array {
-            if (!$connectionUsable) {
-                $notes[$label] = 'Nach Verbindungsfehler übersprungen.';
-                return null;
-            }
-            // The manufacturer recommends at most ten requests per second.
-            usleep(110000);
-            try {
-                return $this->readRegisters($socket, $unit, $transaction++, $start, $count);
-            } catch (RuntimeException $error) {
-                $notes[$label] = $error->getMessage();
-                $connectionUsable = str_starts_with($error->getMessage(), 'Modbus-Ausnahme ');
-                return null;
-            }
-        };
-
-        $auto = $this->ReadPropertyBoolean('AutoFarmDevices');
-        $wallboxes = [];
-        $availableSlots = [];
-        $summary = [];
-        $values = $read('Wallbox-Slots', 40088, 8);
-        if ($values === null && $connectionUsable) {
-            for ($index = 0; $index < 8 && $connectionUsable; $index++) {
-                $state = $read('Wallbox-Slot ' . $index, 40088 + $index, 1);
-                if ($state !== null) {
-                    $values[$index] = $state[0];
-                }
-            }
-        }
-        $wallboxStatus = $values === null ? 'Wallbox-Abfrage fehlgeschlagen' : 'Kein Wallbox-Slot verfügbar';
-        foreach ($values ?? [] as $slot => $state) {
-            $available = ($state & 1) !== 0;
-            $details = ['Verfügbar' => $available, 'Rohwert' => $state];
-            if ($available) {
-                $availableSlots[] = $slot;
-                $details += [
-                    'Betriebsart' => ($state & 2) !== 0 ? 'Solarbetrieb' : 'Mischbetrieb',
-                    'Laden freigegeben' => ($state & 4) === 0,
-                    'Auto lädt' => ($state & 8) !== 0,
-                    'Fahrzeug angeschlossen' => ($state & 32) !== 0,
-                    'Aktive Phasen laut efy-Status' => ($state & 4096) !== 0 ? 1 : 3
-                ];
-                $charging = $details['Auto lädt'] ? 'lädt' : 'lädt nicht';
-                $summary[] = "Slot $slot: " . $details['Betriebsart'] . ", $charging";
-            }
-            $wallboxes['Slot ' . $slot] = $details;
-        }
-        $this->setGroupedValue('Wallboxes', $summary === [] ? $wallboxStatus : implode(' | ', $summary));
-        $this->publishJson('WallboxDetails', $wallboxes);
-        $slot = $availableSlots[0] ?? -1;
-        if (count($availableSlots) > 1) {
-            $notes['Wallbox-Zuordnung'] = 'Übersicht verwendet Slot ' . $slot . '. Alle erkannten Wallboxen stehen unter Zubehör.';
-        }
-        $selectedWallbox = $wallboxes['Slot ' . $slot] ?? [];
-        $wallboxAvailable = $selectedWallbox['Verfügbar'] ?? false;
-        if ($wallboxAvailable) {
-            $this->setGroupedValue('WallboxSolarMode', $selectedWallbox['Betriebsart'] === 'Solarbetrieb');
-            $this->setGroupedValue('WallboxChargeAllowed', $selectedWallbox['Laden freigegeben']);
-            $this->setGroupedValue('WallboxCharging', $selectedWallbox['Auto lädt']);
-            $this->setGroupedValue('WallboxVehicleConnected', $selectedWallbox['Fahrzeug angeschlossen']);
-            $this->setGroupedValue('WallboxPhaseMode', $selectedWallbox['Aktive Phasen laut efy-Status']);
-        }
-        $this->setGroupedValue('WallboxAvailable', $wallboxAvailable);
-
-        $identity = $read('Geräteinformationen', 40002, 66);
-        if ($identity !== null) {
-            foreach (['Manufacturer', 'Model', 'Serial', 'Firmware'] as $index => $ident) {
-                $fields = array_slice($identity, 2 + 16 * $index, 16);
-                $this->setGroupedValue($ident, $this->decodeText($fields));
-            }
-            $this->setGroupedValue('ModbusVersion', sprintf('%d.%d', $identity[0] >> 8, $identity[0] & 255));
-            $this->setGroupedValue('RegisterCount', $identity[1]);
-        }
-
-        $strings = $read('PV-Strings', 40096, 9);
-        $stringData = [];
-        if ($strings !== null) {
-            for ($i = 0; $i < 3; $i++) {
-                $stringData['String ' . ($i + 1)] = [
-                    'Spannung (V)' => $strings[$i],
-                    'Strom (A)' => $strings[3 + $i] / 100,
-                    'Leistung (W)' => $strings[6 + $i]
-                ];
-            }
-        }
-        $this->publishJson('DCStrings', $stringData);
-
-        $meters = $read('Leistungsmesser und SG Ready', 40105, 33);
-        $sgReady = $meters !== null ? $meters[32] : null;
-        if ($meters === null && $connectionUsable) {
-            $meters = $read('Leistungsmesser', 40105, 32);
-            $sgReady = $read('SG Ready', 40137, 1)[0] ?? null;
-        }
-        $meter32 = $read('32-Bit-Phasenleistung', 40138, 48);
-        $meterData = [];
-        $this->setGroupedValue('SGReadyValid', $sgReady !== null);
-        if ($sgReady !== null) {
-            $this->setGroupedValue('SGReadyState', $sgReady);
-            $meterData['SG Ready (Rohwert)'] = $sgReady;
-        }
-        if ($meters !== null) {
-            for ($i = 0; $i < 8; $i++) {
-                $entry = ['Typ' => $meters[4 * $i]];
-                for ($phase = 0; $phase < 3; $phase++) {
-                    $entry['L' . ($phase + 1) . ' (W)'] = $meter32 === null
-                        ? $this->signed16($meters[4 * $i + 1 + $phase])
-                        : $this->signed32($meter32, 6 * $i + 2 * $phase);
-                }
-                $meterData['Index ' . $i] = $entry;
-            }
-        }
-        $this->publishJson('PowerMeters', $meterData);
-        $farm = $this->ReadPropertyInteger('FarmConsumptionMeter');
-        $heatPump = -1;
-        if ($auto && $meters !== null) {
-            $farm = $this->resolveMeter($meters, $farm, 5, 'Farmzähler', $notes);
-        }
-        if ($this->isFarmMode() && $meters !== null) {
-            $heatPump = $this->resolveMeter($meters, -1, 4, 'Zusatzverbrauchszähler', $notes);
-        }
-        $this->publishJson('DetectedFarmDevices', [
-            'Farmzähler' => $farm >= 0 ? $farm : null,
-            'Zusatzverbrauchszähler' => $heatPump >= 0 ? $heatPump : null,
-            'Wallbox-Slot' => $wallboxAvailable ? $slot : null
-        ]);
-        $farmBalance = $this->isFarmMode() ? $this->readFarmMeterPowers($meterData, $farm, $heatPump, $notes) : null;
-        $additionalMeter = $this->isFarmMode() && $heatPump >= 0 && $heatPump !== $farm;
-        $this->updateAdditionalConsumer($additionalMeter, $heatPump);
-
-        $battery = $read('Batteriegrenzen und Speicherenergie', 40202, 8);
-        $batteryData = [];
-        if ($battery !== null) {
-            foreach (['Max. Ladeleistung (W)', 'Max. Entladeleistung (W)',
-                'Verbleibende Energie (Wh)', 'Max. speicherbare Energie (Wh)'] as $index => $label) {
-                $batteryData[$label] = $this->signed32($battery, 2 * $index);
-            }
-        }
-        $this->publishJson('BatteryDetails', $batteryData);
-        $batteryData = $this->batteryWithFallback($batteryData, $this->ReadPropertyInteger('CapacityFallbackWh'), $soc);
-        $hasBatteryEnergy = $this->hasBatteryEnergy($batteryData);
-        if (($batteryData['Max. speicherbare Energie (Wh)'] ?? 0) > 0) {
-            $this->setGroupedValue('BatteryCapacity', $batteryData['Max. speicherbare Energie (Wh)'] / 1000);
-        }
-        if ($hasBatteryEnergy) {
-            $this->setGroupedValue('BatteryEnergy', $batteryData['Verbleibende Energie (Wh)'] / 1000);
-            $reserve = max(0, min(100, $this->ReadPropertyInteger('BackupReservePercent')));
-            $available = max(0, $batteryData['Verbleibende Energie (Wh)']
-                - $batteryData['Max. speicherbare Energie (Wh)'] * $reserve / 100);
-            $this->setGroupedValue('BatteryEnergyAboveReserve', round($available / 1000, 3));
-        } elseif ($battery !== null) {
-            $notes['Speicherenergie'] = 'Der one liefert keine plausible Speicherkapazität oder Restenergie.';
-        }
-        if ($batteryData['Geschätzt'] ?? false) {
-            $notes['Speicherenergie (Quelle)'] = 'Restenergie aus eingetragener Kapazität und Geräte-SOC geschätzt.';
-        }
-        $this->setGroupedValue('BatteryEnergyValid', $hasBatteryEnergy);
-        $peerInverters = [];
-        if ($this->isFarmMode()) {
-            $this->publishFarmBattery($batteryData, $farmBalance, $notes, $peerInverters);
-        }
-
-        $remote = [];
-        foreach ([40186 => 'Zuletzt geschriebene Einspeisegrenze', 40188 => 'Leistungsabgabe bereit',
-            40194 => 'Wirkleistungs-Timeout (s)', 40196 => 'Blindleistungs-Timeout (s)',
-            40199 => 'Batterie-Fernsteuerung deaktivieren (Rohwert)',
-            40200 => 'Wechselrichter-Modusvorgabe', 40201 => 'Wechselrichter-Betriebsmodus'] as $address => $label) {
-            $values = $read($label, $address, $address === 40186 ? 2 : 1);
-            if ($values !== null) {
-                $remote[$label] = $address === 40186 ? $this->signed32($values, 0) : $values[0];
-            }
-        }
-        $this->publishJson('RemoteStatus', $remote);
-
-        $inverters = $this->readInverters($read);
-        $this->publishJson('Inverters', $inverters);
-
-        $accessories = [
-            'Wallbox' => array_filter($wallboxes, static fn (array $entry): bool => $entry['Verfügbar']),
-            'Zaehler' => array_filter($meterData, static fn ($entry): bool => is_array($entry) && $entry['Typ'] !== 0),
-            'String' => array_filter($stringData, static fn (array $entry): bool => array_sum($entry) !== 0),
-            'Wechselrichter' => $this->detectedInverters($inverters),
-            'WechselrichterZweit' => $this->detectedInverters($peerInverters)
-        ];
-        $this->publishAccessories($accessories, $farm, $heatPump);
-        $this->publishJson('ReadNotes', $notes);
-    }
-
-    private function readInverters(callable $read): array
-    {
-        $inverters = [];
-        for ($index = 0; $index < 8; $index++) {
-            $label = 'Wechselrichter ' . $index;
-            $values = $read($label, 41000 + 34 * $index, 34);
-            if ($values === null) {
-                continue;
-            }
-            $entry = ['Frequenz L1 (Hz)' => $this->signed16($values[24]) / 100];
-            for ($i = 0; $i < 3; $i++) {
-                $phase = 'L' . ($i + 1);
-                $entry[$phase] = [
-                    'Scheinleistung (VA)' => $this->signed32($values, 2 * $i),
-                    'Wirkleistung (W)' => $this->signed32($values, 6 + 2 * $i),
-                    'Blindleistung (var)' => $this->signed32($values, 12 + 2 * $i),
-                    'AC-Spannung (V)' => $this->signed16($values[18 + $i]) / 10,
-                    'AC-Strom (A)' => $this->signed16($values[21 + $i]) / 100
-                ];
-                if ($i < 2) {
-                    $entry[$phase]['DC-Leistung (W)'] = $this->signed16($values[25 + $i]);
-                    $entry[$phase]['DC-Spannung (V)'] = $this->signed16($values[28 + $i]) / 10;
-                    $entry[$phase]['DC-Strom (A)'] = $this->signed16($values[31 + $i]) / 100;
-                }
-            }
-            $inverters[$label] = $entry;
-        }
-        return $inverters;
-    }
-
-    private function detectedInverters(array $entries): array
-    {
-        return array_filter($entries, static fn ($entry): bool => is_array($entry) && (
-            ($entry['Frequenz L1 (Hz)'] ?? 0) > 0 || ($entry['L1']['AC-Spannung (V)'] ?? 0) > 0
-            || ($entry['L1']['DC-Spannung (V)'] ?? 0) > 0
-        ));
     }
 
     public function GetConfigurationForm(): string
@@ -1468,341 +1230,189 @@ PHP;
         SetValue($variable, $value);
     }
 
+    public function PollRscpDetails(): void
+    {
+        $this->runTimerPoll(function (): void {
+            $interval = $this->ReadPropertyInteger('RscpDetailInterval');
+            $enabled = $interval > 0 && $this->ReadPropertyBoolean('Active') && $this->rscpCredentials() !== null;
+            $this->SetTimerInterval('RscpDetailsTimer', $enabled ? max(60, min(3600, $interval)) * 1000 : 0);
+            if (!$enabled) {
+                return;
+            }
+            $lock = 'E3DCConnector.Details.' . $this->InstanceID;
+            if (!IPS_SemaphoreEnter($lock, 0)) {
+                return;
+            }
+            try {
+                $this->ReadRscpDeviceOverview(false);
+                if ($this->isFarmMode() && $this->hasFarmPeer()) {
+                    $this->ReadRscpDeviceOverview(true);
+                }
+            } finally {
+                IPS_SemaphoreLeave($lock);
+            }
+        });
+    }
+
+    public function ReadRscpDetails(bool $secondDevice, string $group, int $index): string
+    {
+        [$client, $host, $port, $user, $password] = $this->rscpTarget($secondDevice);
+        $names = ['INFO' => 'Geräteinformationen', 'DCDC' => 'DC/DC-Wandler', 'EMS' => 'Energiemanagement', 'BAT' => 'Batterie und Batteriemodule',
+            'PVI' => 'Wechselrichter', 'PM' => 'Leistungsmesser', 'WB' => 'Wallbox'];
+        if (!isset($names[$group])) {
+            throw new RuntimeException('Unbekannte RSCP-Datengruppe.');
+        }
+        $root = $this->accessoryCategory($this->InstanceID, 'CategoryRscpDetails', 'RSCP-Gerätedetails');
+        $device = $this->accessoryCategory($root, $secondDevice ? 'Device2' : 'Device1',
+            $secondDevice ? 'Zweites Farmgerät' : 'Hauptgerät');
+        $category = $this->accessoryCategory($device, $group . $index, $names[$group] . (in_array($group, ['INFO', 'EMS'], true) ? '' : ' ' . $index));
+        try {
+            $data = $client->readDetails($host, $port, $user, $password, $group, $index);
+        } catch (RuntimeException $error) {
+            $this->publishAccessoryValue($category, 'ReadStatus', 'Status', $error->getMessage());
+            throw $error;
+        }
+        $this->publishRscpTree($category, $data);
+        $this->publishAccessoryValue($category, 'ReadStatus', 'Status',
+            $this->containsOnlyRscpErrors($data) ? 'Das Gerät hat keine Messwerte für diese Datengruppe geliefert.' : 'RSCP-Antwort gelesen.');
+        $this->publishAccessoryValue($category, 'LastRead', 'Letzte RSCP-Abfrage', time());
+        if ($group === 'INFO' && !$secondDevice) {
+            foreach (['INFO_SERIAL_NUMBER' => 'Serial', 'INFO_SW_RELEASE' => 'Firmware'] as $tag => $ident) {
+                if (is_string($data[$tag] ?? null)) {
+                    $this->setGroupedValue($ident, $data[$tag]);
+                }
+            }
+        }
+        $kind = ['PVI' => 'Wechselrichter', 'PM' => 'Zaehler', 'WB' => 'Wallbox'][$group] ?? null;
+        if ($kind !== null && !$this->containsOnlyRscpErrors($data)) {
+            $key = $kind . ($secondDevice ? 'Zweit' : '') . $index;
+            if ($this->publishRscpAccessory($key, $names[$group] . ' ' . $index, $data, $secondDevice)) {
+                $this->refreshAccessoryTable();
+            }
+        }
+        return $this->containsOnlyRscpErrors($data) ? 'Das Gerät hat keine Werte für diese Datengruppe geliefert.'
+            : $names[$group] . ' per RSCP gelesen. Details stehen im Objektbaum.';
+    }
+
+    public function ReadRscpDeviceOverview(bool $secondDevice): string
+    {
+        $results = [];
+        foreach (['INFO', 'EMS', 'DCDC', 'BAT', 'PVI', 'PM', 'WB'] as $group) {
+            try {
+                $results[] = $group . ' – ' . $this->ReadRscpDetails($secondDevice, $group, 0);
+            } catch (RuntimeException $error) {
+                $results[] = $group . ' – ' . $error->getMessage();
+            }
+        }
+        return implode("\n", $results);
+    }
+
+    private function containsOnlyRscpErrors(array $data): bool
+    {
+        foreach ($data as $field => $value) {
+            if ($field === 'RSCP-Fehler' || str_contains($field, '_INDEX')) {
+                continue;
+            }
+            if (!is_array($value) || !$this->containsOnlyRscpErrors($value)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private function publishRscpAccessory(string $key, string $label, array $data, bool $secondDevice): bool
+    {
+        $root = $this->accessoryCategory($this->InstanceID, 'CategoryAccessories', 'Zubehör und Messpunkte');
+        IPS_SetPosition($root, 70);
+        $settings = $this->accessorySettings() ?? [];
+        $new = @IPS_GetObjectIDByIdent($key, $root) === false;
+        $default = $label . ($secondDevice ? ' – zweites Farmgerät' : '');
+        $category = $this->accessoryCategory($root, $key,
+            $this->accessoryName($key, $settings, $this->accessoryLegacyNames() ?? [], $default));
+        IPS_SetHidden($category, !($settings[$key]['Visible'] ?? true));
+        $this->publishAccessoryValue($category, 'Aktuell', 'Daten gelesen', true);
+        $this->publishJsonValue($category, 'RscpSnapshot', 'RSCP-Daten', $data);
+        return $new;
+    }
+
+    private function publishJsonValue(int $parent, string $ident, string $name, array $data): void
+    {
+        $this->publishAccessoryValue($parent, $ident, $name,
+            json_encode($data, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE));
+    }
+
+    private function publishRscpTree(int $parent, array $data): void
+    {
+        foreach ($data as $field => $value) {
+            $ident = (is_array($value) ? 'Container' : 'Tag') . sha1($field);
+            if (is_array($value)) {
+                $this->publishRscpTree($this->accessoryCategory($parent, $ident, $field), $value);
+            } else {
+                $this->publishAccessoryValue($parent, $ident, $field, is_int($value) || is_float($value) ? (float) $value : $value);
+            }
+        }
+    }
+
+    public function SetRscpSetting(bool $secondDevice, string $setting, int $value): string
+    {
+        [$client, $host, $port, $user, $password] = $this->rscpControlTarget($secondDevice);
+        $client->writeSetting($host, $port, $user, $password, $setting, $value);
+        return 'RSCP-Befehl vom Gerät bestätigt.';
+    }
+
+    public function SetRscpIdlePeriod(bool $secondDevice, int $type, int $day, bool $active, string $start, string $end): string
+    {
+        [$client, $host, $port, $user, $password] = $this->rscpControlTarget($secondDevice);
+        $client->writeIdlePeriod($host, $port, $user, $password, $type, $day, $active, $start, $end);
+        return 'RSCP-Sperrzeit vom Gerät bestätigt.';
+    }
+
+    private function rscpTarget(bool $secondDevice): array
+    {
+        $credentials = $this->rscpCredentials();
+        if (!$this->ReadPropertyBoolean('Active') || $credentials === null) {
+            throw new RuntimeException('Instanz und lokales RSCP aktivieren und Zugangsdaten hinterlegen.');
+        }
+        $host = trim($this->ReadPropertyString($secondDevice ? 'SecondHost' : 'Host'));
+        if ($secondDevice && $host === '') {
+            $host = $this->legacyPeerHost();
+        }
+        $port = $this->ReadPropertyInteger('DeviceRscpPort');
+        if (!filter_var($host, FILTER_VALIDATE_IP) || $port < 1 || $port > 65535 || ($secondDevice && !$this->isFarmMode())) {
+            throw new RuntimeException('RSCP-Zielgerät und Port prüfen.');
+        }
+        [$user, $password, $key] = $credentials;
+        return [new \E3DCConnector\FarmRscp($key), $host, $port, $user, $password];
+    }
+
+    private function rscpControlTarget(bool $secondDevice): array
+    {
+        if (!$this->ReadPropertyBoolean('AllowBatteryControl')) {
+            throw new RuntimeException('RSCP-Steuerung in der Instanz freigeben.');
+        }
+        return $this->rscpTarget($secondDevice);
+    }
+
     public function SetWallboxMode(int $slot, bool $solar): void
     {
-        $this->setWallboxBit($slot, 2, $solar);
+        throw new RuntimeException('Der bisherige Wallbox-Befehl war eine Modbus-Funktion. RSCP-Wallboxmodus ist noch nicht freigegeben.');
     }
 
     public function SetWallboxChargingAllowed(int $slot, bool $allowed): void
     {
-        $this->setWallboxBit($slot, 4, !$allowed);
-    }
-
-    private function setWallboxBit(int $slot, int $mask, bool $enabled): void
-    {
-        if ($slot < 0 || $slot > 7) {
-            throw new RuntimeException('Wallbox-Slot muss zwischen 0 und 7 liegen.');
-        }
-        $this->controlDevice(false, 'AllowWallboxControl', function ($socket, int $unit) use ($slot, $mask, $enabled): void {
-            $register = 40088 + $slot;
-            $state = $this->readRegisters($socket, $unit, 2, $register, 1)[0];
-            if (($state & 1) === 0) {
-                throw new RuntimeException('Wallbox-Slot meldet keine verfügbare Wallbox.');
-            }
-            $target = $enabled ? $state | $mask : $state & ~$mask;
-            if ($target === $state) {
-                return;
-            }
-            $payload = pack('nn', $register - 1, $target);
-            $this->writeRegisters($socket, $unit, 3, 6, $payload, $payload);
-            usleep(110000);
-            $actual = $this->readRegisters($socket, $unit, 4, $register, 1)[0];
-            if (($actual & (1 | $mask)) !== ($target & (1 | $mask))) {
-                throw new RuntimeException('Die Wallbox hat die Änderung beim Rücklesen nicht bestätigt.');
-            }
-        });
+        throw new RuntimeException('Der bisherige Wallbox-Befehl war eine Modbus-Funktion. RSCP-Wallbox-Ladefreigabe ist noch nicht freigegeben.');
     }
 
     public function SetBatteryPower(bool $secondDevice, int $watts): void
     {
-        $this->controlDevice($secondDevice, 'AllowBatteryControl', function ($socket, int $unit) use ($watts): void {
-            $limits = $this->readRegisters($socket, $unit, 2, 40202, 4);
-            $charge = $this->signed32($limits, 0);
-            $discharge = $this->signed32($limits, 2);
-            if ($charge < 0 || $discharge > 0 || ($charge === 0 && $discharge === 0)
-                || $watts < $discharge || $watts > $charge) {
-                throw new RuntimeException('Batterieleistung liegt außerhalb der aktuell gemeldeten Grenzen.');
-            }
-            $address = pack('nn', 40197 - 1, 2);
-            $this->writeRegisters($socket, $unit, 3, 16, $address . pack('Cnn', 4, $watts & 0xFFFF, ($watts >> 16) & 0xFFFF), $address);
-        });
+        [$client, $host, $port, $user, $password] = $this->rscpControlTarget($secondDevice);
+        $client->writeBatteryPower($host, $port, $user, $password, $watts);
     }
 
     public function StopBatteryControl(bool $secondDevice): void
     {
-        $this->controlDevice($secondDevice, 'AllowBatteryControl', function ($socket, int $unit): void {
-            $this->readRegisters($socket, $unit, 2, 40199, 1);
-            $payload = pack('nn', 40199 - 1, 1);
-            $this->writeRegisters($socket, $unit, 3, 6, $payload, $payload);
-        });
-    }
-
-    private function controlDevice(bool $secondDevice, string $permission, callable $command): void
-    {
-        if ($secondDevice && !$this->isFarmMode()) {
-            throw new RuntimeException('Das zweite Gerät ist nur im Farmbetrieb verfügbar.');
-        }
-        if (!$this->ReadPropertyBoolean('Active') || !$this->ReadPropertyBoolean($permission)) {
-            throw new RuntimeException('Diese Steuerung ist in der Instanz deaktiviert.');
-        }
-        $host = trim($this->ReadPropertyString($secondDevice ? 'SecondHost' : 'Host'));
-        $port = $this->ReadPropertyInteger('Port');
-        $unit = $this->ReadPropertyInteger('Unit');
-        if (!filter_var($host, FILTER_VALIDATE_IP) || $port < 1 || $port > 65535 || $unit < 0 || $unit > 255
-            || ($secondDevice && $host === trim($this->ReadPropertyString('Host')))) {
-            throw new RuntimeException('Eine gültige und eindeutige Zieladresse ist erforderlich.');
-        }
-        $lock = 'E3DCConnector.Poll.' . $this->InstanceID;
-        if (!IPS_SemaphoreEnter($lock, 2000)) {
-            throw new RuntimeException('Eine Abfrage oder Steuerung läuft bereits.');
-        }
-        try {
-            $address = str_contains($host, ':') ? '[' . $host . ']' : $host;
-            $socket = @stream_socket_client('tcp://' . $address . ':' . $port, $code, $message, 2.0);
-            if ($socket === false) {
-                throw new RuntimeException('E3/DC-Zielgerät nicht erreichbar.');
-            }
-            try {
-                stream_set_timeout($socket, 2);
-                if ($this->readRegisters($socket, $unit, 1, 40001, 1)[0] !== 0xE3DC) {
-                    throw new RuntimeException('E3/DC Simple Mode wurde am Zielgerät nicht erkannt.');
-                }
-                usleep(110000);
-                $command($socket, $unit);
-            } finally {
-                fclose($socket);
-            }
-        } finally {
-            IPS_SemaphoreLeave($lock);
-        }
-    }
-
-    private function publishFarmBattery(array $local, ?array $farmBalance, array &$notes, array &$peerInverters): void
-    {
-        $this->setGroupedValue('FarmPowerValid', false);
-        $this->setGroupedValue('FarmBatteryValid', false);
-        $secondHost = trim($this->ReadPropertyString('SecondHost'));
-        if ($secondHost === '') {
-            $snapshot = $this->readLegacyPeer($notes);
-        } else {
-            try {
-                $snapshot = $this->readSecondOne($secondHost, $notes);
-            } catch (RuntimeException $error) {
-                $notes['Zweiter one'] = $error->getMessage();
-                $snapshot = null;
-            }
-        }
-        $this->setGroupedValue('SecondOneValid', $snapshot !== null);
-        if ($snapshot === null) {
-            return;
-        }
-        [$pv, $power, $soc, $remote, $peerInverters] = $snapshot;
-        $this->setGroupedValue('SecondPV', $pv);
-        $this->setGroupedValue('SecondBattery', $power);
-        $this->setGroupedValue('SecondSOC', $soc);
-        $this->setGroupedValue('SecondCapacity', ($remote['Max. speicherbare Energie (Wh)'] ?? 0) / 1000);
-        $this->publishFarmPower($pv, $power, $farmBalance, $notes);
-
-        if (($local['Geschätzt'] ?? false) || ($remote['Geschätzt'] ?? false)) {
-            $notes['Farm-Batterie (Quelle)'] = 'Restenergie aus eingetragener Kapazität und Geräte-SOC geschätzt.';
-        }
-        $localCapacity = $local['Max. speicherbare Energie (Wh)'] ?? 0;
-        $remoteCapacity = $remote['Max. speicherbare Energie (Wh)'] ?? 0;
-        $capacity = $localCapacity + $remoteCapacity;
-        if ($localCapacity > 0 && $remoteCapacity > 0) {
-            $this->setGroupedValue('FarmBatteryCapacity', $capacity / 1000);
-        }
-        foreach ([$local, $remote] as $storage) {
-            if (!$this->hasBatteryEnergy($storage)) {
-                $this->setGroupedValue('FarmBatteryValid', false);
-                $notes['Farm-Batterie'] = 'Aktuelle, plausible Speicherenergie beider one erforderlich.';
-                return;
-            }
-        }
-
-        $energy = $local['Verbleibende Energie (Wh)'] + $remote['Verbleibende Energie (Wh)'];
-        $this->setGroupedValue('FarmBatteryEnergy', $energy / 1000);
-        $this->setGroupedValue('FarmBatterySOC', round(100 * $energy / $capacity, 1));
-        $this->setGroupedValue('FarmBatteryValid', true);
-    }
-
-    private function readLegacyPeer(array &$notes): ?array
-    {
-        $peer = $this->ReadPropertyInteger('SecondOne');
-        if ($peer === 0) {
-            return null;
-        }
-        $moduleId = '{AAEF96D2-6F24-4FF9-9C9C-C7FECE2C1559}';
-        $instance = $peer !== $this->InstanceID && IPS_InstanceExists($peer) ? IPS_GetInstance($peer) : null;
-        if (($instance['ModuleInfo']['ModuleID'] ?? null) !== $moduleId) {
-            $this->setGroupedValue('FarmBatteryValid', false);
-            $notes['Farm-Batterie'] = 'Die Instanz des zweiten one auswählen.';
-            return null;
-        }
-        $pvId = $this->findGroupedVariable('PV', $peer);
-        $powerId = $this->findGroupedVariable('Battery', $peer);
-        $statusId = $this->findGroupedVariable('LastSuccess', $peer);
-        $detailsId = $this->findGroupedVariable('BatteryDetails', $peer);
-        if ($pvId <= 0 || $powerId <= 0 || $statusId <= 0 || $instance['InstanceStatus'] !== 102) {
-            $notes['Farm-Leistung'] = 'Aktuelle Leistungsdaten des zweiten one erforderlich.';
-            return null;
-        }
-        $configuration = @IPS_GetConfiguration($peer);
-        $settings = is_string($configuration) ? json_decode($configuration, true) : null;
-        $peerCapacityValid = $this->findGroupedVariable('RscpCapacityValid', $peer);
-        $peerCapacityId = $this->findGroupedVariable('RscpCapacity', $peer);
-        if ($peerCapacityValid !== false && $peerCapacityId !== false && GetValue($peerCapacityValid)) {
-            $capacity = GetValue($peerCapacityId);
-            if (is_numeric($capacity) && (float) $capacity > 0) {
-                $this->setGroupedValue('SecondRscpCapacity', (float) $capacity);
-                $this->setGroupedValue('SecondRscpCapacityValid', true);
-                $this->setGroupedValue('SecondRscpCapacityStatus', 'Von der zweiten Symcon-Instanz übernommen.');
-            }
-        }
-        if (!$this->getGroupedValue('SecondRscpCapacityValid')) {
-            $peerHost = $settings['Host'] ?? '';
-            if (filter_var($peerHost, FILTER_VALIDATE_IP)) {
-                $this->readLocalRscpDevice($peerHost, true, $notes);
-            } else {
-                $this->setGroupedValue('SecondRscpCapacityStatus', 'IP-Adresse für die RSCP-Abfrage des zweiten Geräts fehlt.');
-            }
-        }
-        $peerInterval = filter_var($settings['Interval'] ?? null, FILTER_VALIDATE_INT);
-        $maxAge = 2 * max(5, min(3600, $peerInterval === false ? 15 : $peerInterval)) + 10;
-        if (time() - GetValue($statusId) > $maxAge) {
-            $this->setGroupedValue('FarmBatteryValid', false);
-            $notes['Farm-Leistung'] = 'Aktuelle Leistungsdaten des zweiten one erforderlich.';
-            return null;
-        }
-
-
-        $remote = [];
-        if ($detailsId > 0 && time() - IPS_GetVariable($detailsId)['VariableUpdated'] <= $maxAge) {
-            $details = GetValue($detailsId);
-            $decoded = is_string($details) ? json_decode($details, true) : null;
-            $remote = is_array($decoded) ? $decoded : [];
-        }
-
-        $socId = $this->findGroupedVariable('SOC', $peer);
-        $soc = $socId > 0 ? GetValue($socId) : null;
-        if (is_int($soc)) {
-            $capacity = filter_var($settings['CapacityFallbackWh'] ?? null, FILTER_VALIDATE_INT);
-            if ($capacity === false || $capacity <= 0) {
-                $capacity = $this->ReadPropertyInteger('SecondCapacityFallbackWh');
-            }
-            $remote = $this->batteryWithFallback($remote, $capacity, $soc);
-        }
-        $inverters = [];
-        $inverterId = $this->findGroupedVariable('Inverters', $peer);
-        if ($inverterId !== false && time() - IPS_GetVariable($inverterId)['VariableUpdated'] <= $maxAge) {
-            $data = GetValue($inverterId);
-            $decoded = is_string($data) ? json_decode($data, true) : null;
-            $inverters = is_array($decoded) ? $decoded : [];
-        }
-        return [GetValue($pvId), GetValue($powerId), is_int($soc) ? $soc : -1, $remote, $inverters];
-    }
-
-    private function readSecondOne(string $host, array &$notes): array
-    {
-        $master = trim($this->ReadPropertyString('Host'));
-        if (!filter_var($host, FILTER_VALIDATE_IP) || inet_pton($host) === inet_pton($master)) {
-            throw new RuntimeException('Eine andere gültige IP-Adresse für den zweiten one eingeben.');
-        }
-        $rscp = $this->readLocalRscpDevice($host, true, $notes);
-        $port = $this->ReadPropertyInteger('Port');
-        $unit = $this->ReadPropertyInteger('Unit');
-        $address = str_contains($host, ':') ? '[' . $host . ']' : $host;
-        $socket = @stream_socket_client('tcp://' . $address . ':' . $port, $errorCode, $errorText, 2.0);
-        if ($socket === false) {
-            if (isset($rscp['PV'], $rscp['Battery'])) {
-                $notes['Modbus zweites Farmgerät'] = 'Modbus nicht erreichbar. RSCP-Leistung wird verwendet.';
-                return [$rscp['PV'], $rscp['Battery'], $rscp['SOC'] ?? -1, [], []];
-            }
-            throw new RuntimeException('TCP-Verbindung fehlgeschlagen (Fehler ' . $errorCode . ').');
-        }
-
-        try {
-            stream_set_timeout($socket, 2);
-            if ($this->readRegisters($socket, $unit, 1, 40001, 1)[0] !== 0xE3DC) {
-                throw new RuntimeException('E3/DC Simple Mode wurde am zweiten one nicht erkannt.');
-            }
-            usleep(110000);
-            $transaction = 2;
-            $core = $this->mergeRscpCore($this->readCore($socket, $unit, $transaction, $notes), $rscp);
-            $energy = [];
-            try {
-                usleep(110000);
-                $registers = $this->readRegisters($socket, $unit, $transaction++, 40206, 4);
-                $energy = [
-                    'Verbleibende Energie (Wh)' => $this->signed32($registers, 0),
-                    'Max. speicherbare Energie (Wh)' => $this->signed32($registers, 2)
-                ];
-            } catch (RuntimeException $error) {
-                $notes['Speicherenergie des zweiten one'] = $error->getMessage();
-            }
-            $soc = $core[15] ?? -1;
-            $energy = $this->batteryWithFallback($energy, $this->ReadPropertyInteger('SecondCapacityFallbackWh'), $soc);
-            $connectionUsable = true;
-            $inverters = $this->readInverters(function (string $label, int $address, int $count) use ($socket, $unit, &$transaction, &$notes, &$connectionUsable): ?array {
-                if (!$connectionUsable) {
-                    return null;
-                }
-                usleep(110000);
-                try {
-                    return $this->readRegisters($socket, $unit, $transaction++, $address, $count);
-                } catch (RuntimeException $error) {
-                    $notes[$label . ' – zweites Farmgerät'] = $error->getMessage();
-                    $connectionUsable = str_starts_with($error->getMessage(), 'Modbus-Ausnahme ');
-                    return null;
-                }
-            });
-            return [$this->signed32($core, 0), $this->signed32($core, 2), $soc, $energy, $inverters];
-        } catch (RuntimeException $error) {
-            if (!isset($rscp['PV'], $rscp['Battery'])) {
-                throw $error;
-            }
-            $notes['Modbus zweites Farmgerät'] = $error->getMessage();
-            return [$rscp['PV'], $rscp['Battery'], $rscp['SOC'] ?? -1, [], []];
-        } finally {
-            fclose($socket);
-        }
-    }
-
-    private function publishFarmPower(int $peerPV, int $peerBattery, ?array $farmBalance, array &$notes): void
-    {
-        $pv = $this->getGroupedValue('PV') + $peerPV;
-        $localBattery = $this->getGroupedValue('Battery');
-        $battery = $localBattery + $peerBattery;
-        $this->setGroupedValue('FarmBatteryChargePower', max(0, $localBattery) + max(0, $peerBattery));
-        $this->setGroupedValue('FarmBatteryDischargePower', max(0, -$localBattery) + max(0, -$peerBattery));
-        $wallbox = $this->getGroupedValue('WallboxPower');
-        $this->setGroupedValue('FarmPV', $pv);
-        $this->setGroupedValue('FarmBatteryPower', $battery);
-        $this->setGroupedValue('FarmWallboxPower', $wallbox);
-        if ($farmBalance === null) {
-            return;
-        }
-        [$meterPower, $heat] = $farmBalance;
-        $external = $this->getGroupedValue('External');
-        if (!$this->ReadPropertyBoolean('FarmMeterIsConsumption')) {
-            $grid = $meterPower;
-            $consumption = $grid + $pv + $external - $battery - $wallbox;
-        } else {
-            $consumption = $meterPower;
-            $grid = $consumption + $wallbox - $pv - $external + $battery;
-        }
-        if ($consumption < 0) {
-            $notes['Farm-Bilanz'] = 'Der berechnete Farm-Gesamtverbrauch ist negativ. Messpunkt und Vorzeichen prüfen.';
-            return;
-        }
-        if ($heat !== null && ($heat < 0 || $consumption < $heat)) {
-            $notes['Zusatzverbrauch'] = sprintf('Zusatzverbrauch %d W passt nicht zum Farm-Gesamtverbrauch %d W.', $heat, $consumption);
-            $heat = null;
-        }
-        $this->setGroupedValue('FarmConsumption', $consumption);
-        if ($heat !== null) {
-            $this->setGroupedValue('HeatPumpConsumption', $heat);
-            $this->setGroupedValue('FarmHouseConsumption', $consumption - $heat);
-            $this->setGroupedValue('AdditionalConsumerValid', true);
-        }
-        $this->setGroupedValue('FarmConsumptionValid', true);
-        $demand = $consumption + $wallbox;
-        $import = max(0, $grid);
-        $this->setGroupedValue('FarmGrid', $grid);
-        $this->setGroupedValue('FarmGridImport', $import);
-        $this->setGroupedValue('FarmGridExport', max(0, -$grid));
-        $this->setGroupedValue('FarmAutarky', $demand > 0 ? round(100 * max(0, $demand - $import) / $demand, 1) : 0.0);
-        $this->setGroupedValue('FarmPowerValid', true);
+        [$client, $host, $port, $user, $password] = $this->rscpControlTarget($secondDevice);
+        $client->writeBatteryPower($host, $port, $user, $password, 0, true);
     }
 
     public function PollRscpSolar(): void
@@ -1824,7 +1434,7 @@ PHP;
         }
         try {
             $host = trim($this->ReadPropertyString('Host'));
-            $port = $this->ReadPropertyInteger('FarmRscpPort');
+            $port = $this->ReadPropertyInteger($this->isFarmMode() ? 'FarmRscpPort' : 'DeviceRscpPort');
             $user = trim($this->ReadPropertyString('FarmRscpUser'));
             $password = $this->ReadPropertyString('FarmRscpPassword');
             $key = $this->ReadPropertyString('FarmRscpKey');
@@ -1905,10 +1515,10 @@ PHP;
             ? round($state['totals']['DayPV'] ?? 0.0, 3) : 0.0;
         $this->setGroupedValue('DayPVEstimate', $estimate);
         $this->setGroupedValue('DayPV', $estimate);
-        $this->setGroupedValue('DayPVSource', 'Modbus-Summe');
+        $this->setGroupedValue('DayPVSource', 'Aus RSCP-Live-Werten integriert');
     }
 
-    private function publishDaily(bool $valid, ?array $core = null): void
+    private function publishDaily(bool $valid, ?array $core = null, bool $farmWallboxCurrent = false): void
     {
         $forecastSource = $this->ReadPropertyInteger('ForecastSource');
         $ownForecast = $this->groupedVariableID('DayForecast');
@@ -1930,7 +1540,7 @@ PHP;
             return;
         }
         $state = $this->decodeJsonArray($configuration) ?? [];
-        $topology = $single ? 'single' : 'farm';
+        $topology = $single ? 'single-rscp' : 'farm-rscp';
         if (($state['topology'] ?? 'farm') !== $topology) {
             $state = [];
         }
@@ -1941,7 +1551,7 @@ PHP;
         if (($state['midnight'] ?? 0) !== $midnight) {
             $state = ['midnight' => $midnight, 'start' => $canIntegrate ? $midnight : 0, 'totals' => []];
         }
-        $balanceKey = !$this->ReadPropertyBoolean('FarmMeterIsConsumption') ? 'grid-v3' : 'consumption-v3';
+        $balanceKey = 'rscp-v1';
         $balanceChanged = ($state['balanceKey'] ?? null) !== $balanceKey
             && ($state['totals'] ?? []) !== [];
         $balanceIdents = ['DayGridImport', 'DayGridExport', 'DayHouse', 'DayConsumption'];
@@ -1954,13 +1564,15 @@ PHP;
         $state['balanceKey'] = $balanceKey;
         $powers = [];
         // PV, battery and wallbox power are published before the farm balance is checked.
-        if (!$single && $this->getGroupedValue('SecondOneValid')) {
+        if (!$single && $valid) {
             $powers = [
                 'DayPV' => $this->getGroupedValue('FarmPV'),
                 'DayBatteryCharge' => $this->getGroupedValue('FarmBatteryChargePower'),
-                'DayBatteryDischarge' => $this->getGroupedValue('FarmBatteryDischargePower'),
-                'DayWallbox' => $this->getGroupedValue('FarmWallboxPower')
+                'DayBatteryDischarge' => $this->getGroupedValue('FarmBatteryDischargePower')
             ];
+            if ($farmWallboxCurrent) {
+                $powers['DayWallbox'] = $this->getGroupedValue('FarmWallboxPower');
+            }
             if ($state['start'] === 0) {
                 $state['start'] = $now;
             }
@@ -1971,10 +1583,6 @@ PHP;
                 'DayGridExport' => $this->getGroupedValue('FarmGridExport'),
                 'DayConsumption' => $this->getGroupedValue('FarmConsumption')
             ];
-            if ($this->getGroupedValue('AdditionalConsumerValid')) {
-                $powers['DayHouse'] = $this->getGroupedValue('FarmHouseConsumption');
-                $powers['DayHeatPump'] = $this->getGroupedValue('HeatPumpConsumption');
-            }
         }
 
         if ($single && $core !== null) {
@@ -2014,7 +1622,7 @@ PHP;
                 if ($this->hasCurrentRscpSolar($now, $midnight)) {
                     continue;
                 }
-                $this->setGroupedValue('DayPVSource', 'Modbus-Summe');
+                $this->setGroupedValue('DayPVSource', 'Aus RSCP-Live-Werten integriert');
             }
             $this->setGroupedValue($ident, round($total, 3));
         }
@@ -2024,44 +1632,6 @@ PHP;
         $this->WriteAttributeString('DailyTotals', json_encode($state));
         $this->setGroupedValue('DayStart', $state['start']);
         $this->setGroupedValue('DayBalanceStart', $state['balanceStart'] ?? 0);
-    }
-
-    private function batteryWithFallback(array $values, int $configuredCapacity, int $soc): array
-    {
-        if (!$this->hasBatteryEnergy($values) && $configuredCapacity > 0 && $soc >= 0 && $soc <= 100) {
-            $values['Max. speicherbare Energie (Wh)'] = $configuredCapacity;
-            $values['Verbleibende Energie (Wh)'] = (int) round($configuredCapacity * $soc / 100);
-            $values['Geschätzt'] = true;
-        }
-        return $values;
-    }
-
-    private function hasBatteryEnergy(array $values): bool
-    {
-        $capacity = $values['Max. speicherbare Energie (Wh)'] ?? 0;
-        $energy = $values['Verbleibende Energie (Wh)'] ?? -1;
-        return $capacity > 0 && $energy >= 0 && $energy <= $capacity;
-    }
-
-    private function resolveMeter(array $registers, int $index, int $type, string $name, array &$notes): int
-    {
-        if ($index !== -1) {
-            return $index;
-        }
-        $matches = [];
-        for ($candidate = 0; $candidate < 8; $candidate++) {
-            if ($registers[4 * $candidate] === $type) {
-                $matches[] = $candidate;
-            }
-        }
-        if (count($matches) === 1) {
-            return $matches[0];
-        }
-        if ($matches !== []) {
-            $notes[$name] = $type === 4 ? 'Mehrere Typ-4-Zähler erkannt. Kein eindeutiger Zusatzverbrauchszähler.'
-                : 'Mehrere Zähler dieses Typs gefunden. Bitte den gewünschten Index wählen.';
-        }
-        return -1;
     }
 
     private function updateAdditionalConsumer(bool $visible, int $index = -1): void
@@ -2090,95 +1660,9 @@ PHP;
         }
     }
 
-    private function readFarmMeterPowers(array $meters, int $farm, int $additional, array &$notes): ?array
-    {
-        $farmMeter = $meters['Index ' . $farm] ?? [];
-        if (($farmMeter['Typ'] ?? null) !== 5) {
-            $notes['Farm-Verbrauch'] = 'Farmzähler (Typ 5) zuordnen.';
-            return null;
-        }
-        $total = $farmMeter['L1 (W)'] + $farmMeter['L2 (W)'] + $farmMeter['L3 (W)'];
-        $this->setGroupedValue('FarmMeterPower', $total);
-
-        $extra = $meters['Index ' . $additional] ?? [];
-        $consumption = null;
-        if ($additional >= 0) {
-            if ($additional !== $farm && ($extra['Typ'] ?? 0) !== 0) {
-                $consumption = $extra['L1 (W)'] + $extra['L2 (W)'] + $extra['L3 (W)'];
-            } else {
-                $notes['Zusatzverbrauch'] = 'Der ausgewählte Zusatzverbrauchszähler ist nicht verfügbar oder entspricht dem Farmzähler.';
-            }
-        }
-        return [$total, $consumption];
-    }
-
-    private function decodeText(array $registers): string
-    {
-        return trim(explode("\0", pack('n*', ...$registers), 2)[0]);
-    }
-
-    private function signed16(int $value): int
-    {
-        return $value >= 32768 ? $value - 65536 : $value;
-    }
-
-    private function signed32(array $values, int $index): int
-    {
-        return $this->signed16($values[$index + 1]) * 65536 + $values[$index];
-    }
-
     private function publishJson(string $ident, array $data): void
     {
         $this->setGroupedValue($ident, json_encode((object) $data, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE));
     }
 
-    private function readRegisters($socket, int $unit, int $transaction, int $register, int $count): array
-    {
-        $body = $this->exchangeModbus($socket, $unit, $transaction, 3, pack('nn', $register - 1, $count), $register);
-        if (ord($body[0]) !== 3 || ord($body[1]) !== $count * 2 || strlen($body) !== 2 + $count * 2) {
-            throw new RuntimeException('Unerwartete Modbus-Registerantwort.');
-        }
-        return array_values(unpack('n*', substr($body, 2)));
-    }
-
-    private function writeRegisters($socket, int $unit, int $transaction, int $function, string $payload, string $expected): void
-    {
-        usleep(110000);
-        $register = unpack('n', $payload)[1] + 1;
-        $response = $this->exchangeModbus($socket, $unit, $transaction, $function, $payload, $register);
-        if ($response !== chr($function) . $expected) {
-            throw new RuntimeException('Unerwartete Modbus-Schreibbestätigung.');
-        }
-    }
-
-    private function exchangeModbus($socket, int $unit, int $transaction, int $function, string $payload, int $register): string
-    {
-        $request = pack('nnnCC', $transaction, 0, strlen($payload) + 2, $unit, $function) . $payload;
-        if (@fwrite($socket, $request) !== strlen($request)) {
-            throw new RuntimeException('Modbus-Anfrage konnte nicht gesendet werden.');
-        }
-        $header = unpack('ntransaction/nprotocol/nlength/Cunit', $this->readBytes($socket, 7));
-        if ($header['transaction'] !== $transaction || $header['protocol'] !== 0
-            || $header['unit'] !== $unit || $header['length'] < 3 || $header['length'] > 254) {
-            throw new RuntimeException('Ungültiger Modbus-Antwortkopf.');
-        }
-        $body = $this->readBytes($socket, $header['length'] - 1);
-        if (ord($body[0]) === ($function | 0x80)) {
-            throw new RuntimeException('Modbus-Ausnahme ' . ord($body[1]) . ' bei Register ' . $register . '.');
-        }
-        return $body;
-    }
-
-    private function readBytes($socket, int $length): string
-    {
-        $data = '';
-        while (strlen($data) < $length) {
-            $part = @fread($socket, $length - strlen($data));
-            if ($part === false || $part === '') {
-                throw new RuntimeException('Modbus-Antwort unvollständig oder Zeitlimit erreicht.');
-            }
-            $data .= $part;
-        }
-        return $data;
-    }
 }
