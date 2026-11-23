@@ -1,4 +1,4 @@
-E3DC Farm 0.4 für IP-Symcon 9.0
+E3DC Farm 0.5 für IP-Symcon 9.0
 
 Installation
 1. Auf dem Rechner, auf dem der IP-Symcon-Dienst läuft, den Ordner
@@ -29,7 +29,7 @@ Anzeigen und Grenzen
   Die Slot-Erkennung ermittelt kein Wallbox-Modell.
 - Bei Kommunikationsfehlern bleiben die zuletzt empfangenen Werte
   sichtbar. „Letzte erfolgreiche Abfrage“ zeigt ihren Zeitstand.
-- Version 0.4 sendet ausschließlich Modbus-Leseanfragen im
+- Version 0.5 sendet ausschließlich Modbus-Leseanfragen im
   E3/DC Simple Mode. Optionale Detailgruppen stehen als JSON
   in je einer Stringvariablen. Geräteinformationen und die bisherigen
   Leistungswerte sind separate Variablen.
@@ -65,3 +65,10 @@ Kapazität. Die Leistung ist die Summe der beiden Geräteleistungen.
 Negative Leistung bedeutet Entladung. Die Farmwerte gelten nur,
 wenn „Farm-Batteriewerte aktuell“ aktiv ist. Die ursprüngliche
 SOC-Variable zeigt weiterhin den einzelnen one.
+
+Speicherkapazität
+Die maximale und die verbleibende Speicherenergie stehen pro one
+als separate kWh-Variablen zur Verfügung (Modbus 40208 und 40206).
+Der Farmmaster zeigt zusätzlich die Summe beider one an, wenn die
+zweite Instanz für die Farm-Batteriewerte ausgewählt ist. Die
+Aktuell-Variablen geben an, ob für die Anzeige gültige Daten vorliegen.
