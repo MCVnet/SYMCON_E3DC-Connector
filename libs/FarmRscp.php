@@ -38,7 +38,7 @@ final class FarmRscp
     private string $sendIV;
     private string $receiveIV;
 
-    public function __construct(string $key)
+    public function __construct(private readonly string $key)
     {
         if ($key === '' || strlen($key) > self::BLOCK_SIZE) {
             throw new RuntimeException('RSCP-Schlüssel muss 1 bis 32 Bytes lang sein.');
@@ -91,7 +91,21 @@ final class FarmRscp
             foreach ($liveTags as $offset => $name) {
                 $request .= self::element(0x01000000 + $offset, 0, '');
             }
-            $answer = $this->exchange($socket, $request);
+            try {
+                $answer = $this->exchange($socket, $request);
+            } catch (RuntimeException $error) {
+                // The device may reject bundled live requests but still support BAT_REQ_SPECIFICATION.
+                fclose($socket);
+                $socket = null;
+                $session = new self($this->key);
+                $specificationSocket = $session->openSession($host, $port, $user, $password);
+                try {
+                    $battery = $session->readSpecification($specificationSocket);
+                    return ['live' => [], 'liveError' => $error->getMessage()] + $battery;
+                } finally {
+                    fclose($specificationSocket);
+                }
+            }
             $live = [];
             foreach ($liveTags as $offset => $name) {
                 $element = $answer[0x01800000 + $offset] ?? null;
@@ -103,32 +117,51 @@ final class FarmRscp
                 $live[$name] = (int) round($value);
             }
 
-            $specification = [];
-            $batteryError = '';
-            try {
-                $request = self::element(0x03040001, 0x05, pack('v', 0))
-                    . self::element(0x03000043, 0, '');
-                $answer = $this->exchange($socket, self::element(0x03040000, self::CONTAINER, $request));
-                $battery = $answer[0x03840000] ?? null;
-                $container = ($battery[0] ?? null) === self::CONTAINER ? ($battery[1][0x03800043] ?? null) : null;
-                if (($container[0] ?? null) === self::CONTAINER) {
-                    foreach ([0x03800125 => 'Kapazität (Wh)', 0x03800126 => 'Spezifizierte Entladeleistung (W)',
-                        0x03800127 => 'Spezifizierte Ladeleistung (W)'] as $tag => $name) {
-                        if (isset($container[1][$tag])) {
-                            $value = self::decodeEnergy($container[1][$tag]);
-                            if ($value !== null) {
-                                $specification[$name] = $value;
-                            }
+            return ['live' => $live] + $this->readSpecification($socket);
+        } finally {
+            if ($socket !== null) {
+                fclose($socket);
+            }
+        }
+    }
+
+    private function readSpecification($socket): array
+    {
+        $specification = [];
+        $batteryError = '';
+        try {
+            $request = self::element(0x03040001, 0x05, pack('v', 0))
+                . self::element(0x03000043, 0, '');
+            $answer = $this->exchange($socket, self::element(0x03040000, self::CONTAINER, $request));
+            $battery = $answer[0x03840000] ?? null;
+            $container = ($battery[0] ?? null) === self::CONTAINER ? ($battery[1][0x03800043] ?? null) : null;
+            $capacity = ($container[0] ?? null) === self::CONTAINER ? ($container[1][0x03800125] ?? null) : null;
+            foreach ([$battery, $container, $capacity] as $element) {
+                if (($element[0] ?? null) === self::ERROR && strlen($element[1]) === 4) {
+                    $batteryError = 'RSCP-Batterieabfrage: ' . match (unpack('V', $element[1])[1]) {
+                        1 => 'Abfrage wird nicht unterstützt.',
+                        2 => 'Zugriff verweigert.',
+                        6 => 'Wert nicht verfügbar.',
+                        default => 'Fehlercode ' . unpack('V', $element[1])[1] . '.'
+                    };
+                    break;
+                }
+            }
+            if (($container[0] ?? null) === self::CONTAINER) {
+                foreach ([0x03800125 => 'Kapazität (Wh)', 0x03800126 => 'Spezifizierte Entladeleistung (W)',
+                    0x03800127 => 'Spezifizierte Ladeleistung (W)'] as $tag => $name) {
+                    if (isset($container[1][$tag])) {
+                        $value = self::decodeEnergy($container[1][$tag]);
+                        if ($value !== null) {
+                            $specification[$name] = $value;
                         }
                     }
                 }
-            } catch (RuntimeException $error) {
-                $batteryError = $error->getMessage();
             }
-            return ['live' => $live, 'specification' => $specification, 'batteryError' => $batteryError];
-        } finally {
-            fclose($socket);
+        } catch (RuntimeException $error) {
+            $batteryError = $error->getMessage();
         }
+        return ['specification' => $specification, 'batteryError' => $batteryError];
     }
 
     private function openSession(string $host, int $port, string $user, string $password)

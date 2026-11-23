@@ -131,8 +131,10 @@ class E3DCConnector extends IPSModule
         $this->maintainGroupedVariable('FarmBatteryPower', 'Farm-Batterieleistung (W)', '', VARIABLETYPE_INTEGER);
         $this->maintainGroupedVariable('FarmBatteryValid', 'Farm-Batteriewerte aktuell', '', VARIABLETYPE_BOOLEAN);
         $this->maintainGroupedVariable('RscpCapacity', 'Spezifizierte Speicherkapazität per RSCP (kWh)', '', VARIABLETYPE_FLOAT);
+        $this->maintainGroupedVariable('RscpCapacityStatus', 'RSCP-Speicherkapazität – Status', '', VARIABLETYPE_STRING);
         $this->maintainGroupedVariable('RscpCapacityValid', 'RSCP-Speicherkapazität aktuell', '', VARIABLETYPE_BOOLEAN);
         $this->maintainGroupedVariable('SecondRscpCapacity', 'Spezifizierte Speicherkapazität per RSCP (kWh)', '', VARIABLETYPE_FLOAT);
+        $this->maintainGroupedVariable('SecondRscpCapacityStatus', 'RSCP-Speicherkapazität – Status', '', VARIABLETYPE_STRING);
         $this->maintainGroupedVariable('SecondRscpCapacityValid', 'RSCP-Speicherkapazität aktuell', '', VARIABLETYPE_BOOLEAN);
         $this->maintainGroupedVariable('BatteryCapacity', 'Speicherkapazität des one (kWh)', '', VARIABLETYPE_FLOAT);
         $this->maintainGroupedVariable('BatteryEnergy', 'Verbleibende Speicherenergie des one (kWh)', '', VARIABLETYPE_FLOAT);
@@ -246,7 +248,7 @@ class E3DCConnector extends IPSModule
             'Storage' => ['Batterie und Speicher', [
                 'SOC', 'Battery',
                 'BatteryChargePower', 'BatteryDischargePower', 'BatteryCapacity', 'BatteryEnergy',
-                'BatteryEnergyValid', 'BatteryEnergyAboveReserve', 'BatteryDetails', 'RscpCapacity', 'RscpCapacityValid'
+                'BatteryEnergyValid', 'BatteryEnergyAboveReserve', 'BatteryDetails', 'RscpCapacity', 'RscpCapacityValid', 'RscpCapacityStatus'
             ]],
             'Wallbox' => ['Wallbox – Übersicht', [
                 'WallboxAvailable', 'WallboxPower', 'WallboxSolar', 'WallboxCharging',
@@ -262,7 +264,7 @@ class E3DCConnector extends IPSModule
                 'Manufacturer', 'Model', 'Serial', 'Firmware', 'ModbusVersion'
             ]],
             'Second' => ['Weiteres Farmgerät', [
-                'SecondOneValid', 'SecondPV', 'SecondBattery', 'SecondSOC', 'SecondCapacity', 'SecondRscpCapacity', 'SecondRscpCapacityValid'
+                'SecondOneValid', 'SecondPV', 'SecondBattery', 'SecondSOC', 'SecondCapacity', 'SecondRscpCapacity', 'SecondRscpCapacityValid', 'SecondRscpCapacityStatus'
             ]],
             'Diagnostics' => ['Diagnose und Status', [
                 'OperatingModeStatus', 'DataStatus', 'LastSuccess', 'LanSetupStatus', 'ReadNotes', 'DetectedFarmDevices', 'RegisterCount',
@@ -893,7 +895,9 @@ PHP;
 
     private function readLocalRscpDevice(string $host, bool $second, array &$notes): array
     {
+        $status = $second ? 'SecondRscpCapacityStatus' : 'RscpCapacityStatus';
         if (!$this->ReadPropertyBoolean('ReadRscpSolar')) {
+            $this->setGroupedValue($status, 'Lokales RSCP deaktiviert.');
             return [];
         }
         $port = $this->ReadPropertyInteger('DeviceRscpPort');
@@ -901,6 +905,7 @@ PHP;
         $password = $this->ReadPropertyString('FarmRscpPassword');
         $key = $this->ReadPropertyString('FarmRscpKey');
         if ($port < 1 || $port > 65535 || $user === '' || $password === '' || $key === '') {
+            $this->setGroupedValue($status, 'RSCP-Port und Zugangsdaten prüfen.');
             return [];
         }
         $label = $second ? 'RSCP zweites Farmgerät' : 'RSCP Hauptgerät';
@@ -908,17 +913,23 @@ PHP;
             $data = (new \E3DCConnector\FarmRscp($key))->readDevice($host, $port, $user, $password);
         } catch (RuntimeException $error) {
             $notes[$label] = $error->getMessage();
+            $this->setGroupedValue($status, $error->getMessage());
             return [];
         }
         $live = $data['live'];
-        $notes[$label] = $live === [] ? 'Keine Live-Messwerte geliefert.' : 'Live-Werte über RSCP: ' . implode(', ', array_keys($live));
+        $notes[$label] = $live === [] ? ($data['liveError'] ?? 'Keine Live-Messwerte geliefert.') : 'Live-Werte über RSCP: ' . implode(', ', array_keys($live));
         $capacity = $data['specification']['Kapazität (Wh)'] ?? null;
         $valid = $capacity !== null && $capacity > 0;
         $this->setGroupedValue($second ? 'SecondRscpCapacityValid' : 'RscpCapacityValid', $valid);
         if ($valid) {
+            $this->setGroupedValue($status, 'Spezifizierte Kapazität für Batterieindex 0 gelesen.');
             $this->setGroupedValue($second ? 'SecondRscpCapacity' : 'RscpCapacity', $capacity / 1000);
         } else {
-            $notes[$label . ' Batterie'] = $data['batteryError'] ?: 'Keine spezifizierte Kapazität für Batterieindex 0 geliefert.';
+            $message = $data['batteryError'] ?: ($capacity === null
+                ? 'Keine spezifizierte Kapazität für Batterieindex 0 geliefert.'
+                : 'Batterieindex 0 meldet keine positive Kapazität.');
+            $notes[$label . ' Batterie'] = $message;
+            $this->setGroupedValue($status, $message);
         }
         return $live;
     }
@@ -1603,6 +1614,24 @@ PHP;
         }
         $configuration = @IPS_GetConfiguration($peer);
         $settings = is_string($configuration) ? json_decode($configuration, true) : null;
+        $peerCapacityValid = $this->findGroupedVariable('RscpCapacityValid', $peer);
+        $peerCapacityId = $this->findGroupedVariable('RscpCapacity', $peer);
+        if ($peerCapacityValid !== false && $peerCapacityId !== false && GetValue($peerCapacityValid)) {
+            $capacity = GetValue($peerCapacityId);
+            if (is_numeric($capacity) && (float) $capacity > 0) {
+                $this->setGroupedValue('SecondRscpCapacity', (float) $capacity);
+                $this->setGroupedValue('SecondRscpCapacityValid', true);
+                $this->setGroupedValue('SecondRscpCapacityStatus', 'Von der zweiten Symcon-Instanz übernommen.');
+            }
+        }
+        if (!$this->getGroupedValue('SecondRscpCapacityValid')) {
+            $peerHost = $settings['Host'] ?? '';
+            if (filter_var($peerHost, FILTER_VALIDATE_IP)) {
+                $this->readLocalRscpDevice($peerHost, true, $notes);
+            } else {
+                $this->setGroupedValue('SecondRscpCapacityStatus', 'IP-Adresse für die RSCP-Abfrage des zweiten Geräts fehlt.');
+            }
+        }
         $peerInterval = filter_var($settings['Interval'] ?? null, FILTER_VALIDATE_INT);
         $maxAge = 2 * max(5, min(3600, $peerInterval === false ? 15 : $peerInterval)) + 10;
         if (time() - GetValue($statusId) > $maxAge) {
