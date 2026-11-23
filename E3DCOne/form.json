@@ -78,6 +78,15 @@
           "maximum": 7
         },
         {
+          "type": "CheckBox",
+          "name": "FarmMeterMeasuresGrid",
+          "caption": "Farmzähler misst Netzbezug und Einspeisung"
+        },
+        {
+          "type": "Label",
+          "caption": "Nur einschalten, wenn die rohe Farmzähler-Leistung mit der Netzleistung im E3/DC-Portal übereinstimmt."
+        },
+        {
           "type": "NumberSpinner",
           "name": "HeatPumpMeter",
           "caption": "Index Wärmepumpenzähler (−1 = automatisch)",

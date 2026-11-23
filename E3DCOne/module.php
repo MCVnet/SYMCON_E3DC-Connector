@@ -48,6 +48,7 @@ class E3DCOne extends IPSModule
         $this->RegisterPropertyBoolean('ReadWallbox', false);
         $this->RegisterPropertyInteger('WallboxSlot', -1);
         $this->RegisterPropertyInteger('FarmConsumptionMeter', -1);
+        $this->RegisterPropertyBoolean('FarmMeterMeasuresGrid', false);
         $this->RegisterPropertyInteger('HeatPumpMeter', -1);
         $this->RegisterPropertyInteger('SecondOne', 0);
         $this->RegisterPropertyString('SecondHost', '');
@@ -83,6 +84,8 @@ class E3DCOne extends IPSModule
         $this->maintainGroupedVariable('FarmConsumption', 'Farm-Gesamtverbrauch (W)', '', VARIABLETYPE_INTEGER);
         $this->maintainGroupedVariable('HeatPumpConsumption', 'Wärmepumpe (W)', '', VARIABLETYPE_INTEGER);
         $this->maintainGroupedVariable('FarmHouseConsumption', 'Hausverbrauch ohne Wärmepumpe (W)', '', VARIABLETYPE_INTEGER);
+        $this->maintainGroupedVariable('FarmMeterPower', 'Farmzähler – vorzeichenbehaftete Leistung (W)', '', VARIABLETYPE_INTEGER);
+        $this->maintainGroupedVariable('DayBalanceStart', 'Verbrauchs- und Netzbilanz erfasst seit', '~UnixTimestamp', VARIABLETYPE_INTEGER);
         $this->maintainGroupedVariable('FarmConsumptionValid', 'Farm-Verbrauchswerte aktuell', '', VARIABLETYPE_BOOLEAN);
         $this->maintainGroupedVariable('FarmBatterySOC', 'Farm-Batterieladezustand (%)', '', VARIABLETYPE_FLOAT);
         $this->maintainGroupedVariable('FarmBatteryPower', 'Farm-Batterieleistung (W)', '', VARIABLETYPE_INTEGER);
@@ -169,7 +172,7 @@ class E3DCOne extends IPSModule
             'Farm' => ['Farm live', [
                 'FarmPV', 'FarmGrid', 'FarmGridImport', 'FarmGridExport', 'FarmConsumption',
                 'FarmHouseConsumption', 'HeatPumpConsumption', 'FarmAutarky',
-                'FarmWallboxPower', 'FarmPowerValid', 'FarmConsumptionValid'
+                'FarmWallboxPower', 'FarmPowerValid', 'FarmConsumptionValid', 'FarmMeterPower'
             ]],
             'Storage' => ['Batterie und Speicher', [
                 'FarmBatterySOC', 'FarmBatteryPower', 'FarmBatteryChargePower', 'FarmBatteryDischargePower',
@@ -183,7 +186,7 @@ class E3DCOne extends IPSModule
                 'WallboxVehicleConnected', 'Wallboxes', 'WallboxDetails'
             ]],
             'Daily' => ['Tageswerte und Prognose', [
-                'DayForecast', 'DayForecastAvailable', 'DayStart'
+                'DayForecast', 'DayForecastAvailable', 'DayStart', 'DayBalanceStart'
             ]],
             'Master' => ['Farmmaster', [
                 'PV', 'House', 'Grid', 'GridImport', 'GridExport', 'External',
@@ -761,9 +764,8 @@ PHP;
             'Wärmepumpenzähler' => $heatPump >= 0 ? $heatPump : null,
             'Wallbox-Slot' => $wallboxAvailable ? $slot : null
         ]);
-        if ($farm !== -1 || $heatPump !== -1) {
-            $this->publishFarmConsumption($meterData, $farm, $heatPump, $notes);
-        }
+        $farmBalance = $farm === -1 && $heatPump === -1
+            ? null : $this->readFarmMeterPowers($meterData, $farm, $heatPump, $notes);
 
         $battery = $read('Batteriegrenzen und Speicherenergie', 40202, 8);
         $batteryData = [];
@@ -788,7 +790,7 @@ PHP;
             $notes['Speicherenergie (Quelle)'] = 'Restenergie aus eingetragener Kapazität und Geräte-SOC geschätzt.';
         }
         $this->setGroupedValue('BatteryEnergyValid', $hasBatteryEnergy);
-        $this->publishFarmBattery($batteryData, $notes);
+        $this->publishFarmBattery($batteryData, $farmBalance, $notes);
 
         $remote = [];
         foreach ([40186 => 'Zuletzt geschriebene Einspeisegrenze', 40188 => 'Leistungsabgabe bereit',
@@ -832,7 +834,7 @@ PHP;
         $this->publishJson('ReadNotes', $notes);
     }
 
-    private function publishFarmBattery(array $local, array &$notes): void
+    private function publishFarmBattery(array $local, ?array $farmBalance, array &$notes): void
     {
         $this->setGroupedValue('FarmPowerValid', false);
         $this->setGroupedValue('FarmBatteryValid', false);
@@ -856,7 +858,7 @@ PHP;
         $this->setGroupedValue('SecondBattery', $power);
         $this->setGroupedValue('SecondSOC', $soc);
         $this->setGroupedValue('SecondCapacity', ($remote['Max. speicherbare Energie (Wh)'] ?? 0) / 1000);
-        $this->publishFarmPower($pv, $power);
+        $this->publishFarmPower($pv, $power, $farmBalance, $notes);
 
         if (($local['Geschätzt'] ?? false) || ($remote['Geschätzt'] ?? false)) {
             $notes['Farm-Batterie (Quelle)'] = 'Restenergie aus eingetragener Kapazität und Geräte-SOC geschätzt.';
@@ -961,7 +963,7 @@ PHP;
         }
     }
 
-    private function publishFarmPower(int $peerPV, int $peerBattery): void
+    private function publishFarmPower(int $peerPV, int $peerBattery, ?array $farmBalance, array &$notes): void
     {
         $pv = $this->getGroupedValue('PV') + $peerPV;
         $localBattery = $this->getGroupedValue('Battery');
@@ -972,13 +974,27 @@ PHP;
         $this->setGroupedValue('FarmPV', $pv);
         $this->setGroupedValue('FarmBatteryPower', $battery);
         $this->setGroupedValue('FarmWallboxPower', $wallbox);
-        if (!$this->getGroupedValue('FarmConsumptionValid')) {
+        if ($farmBalance === null) {
             return;
         }
-
-        // The portal displays wallbox demand separately from the other consumers.
-        $demand = $this->getGroupedValue('FarmConsumption') + $wallbox;
-        $grid = $demand - $pv - $this->getGroupedValue('External') + $battery;
+        [$meterPower, $heat] = $farmBalance;
+        $external = $this->getGroupedValue('External');
+        if ($this->ReadPropertyBoolean('FarmMeterMeasuresGrid')) {
+            $grid = $meterPower;
+            $consumption = $grid + $pv + $external - $battery - $wallbox;
+        } else {
+            $consumption = $meterPower;
+            $grid = $consumption + $wallbox - $pv - $external + $battery;
+        }
+        if ($heat < 0 || $consumption < $heat) {
+            $notes['Farm-Bilanz'] = sprintf('Gesamtverbrauch %d W kleiner als Wärmepumpenleistung %d W oder Wärmepumpenwert negativ. Zähler am Netzübergabepunkt prüfen.',
+                $consumption, $heat);
+            return;
+        }
+        $this->setGroupedValue('FarmConsumption', $consumption);
+        $this->setGroupedValue('FarmHouseConsumption', $consumption - $heat);
+        $this->setGroupedValue('FarmConsumptionValid', true);
+        $demand = $consumption + $wallbox;
         $import = max(0, $grid);
         $this->setGroupedValue('FarmGrid', $grid);
         $this->setGroupedValue('FarmGridImport', $import);
@@ -1013,6 +1029,17 @@ PHP;
         if (($state['midnight'] ?? 0) !== $midnight) {
             $state = ['midnight' => $midnight, 'start' => $canIntegrate ? $midnight : 0, 'totals' => []];
         }
+        $balanceKey = $this->ReadPropertyBoolean('FarmMeterMeasuresGrid') ? 'grid-v2' : 'consumption-v2';
+        $balanceChanged = ($state['balanceKey'] ?? null) !== $balanceKey
+            && ($state['totals'] ?? []) !== [];
+        $balanceIdents = ['DayGridImport', 'DayGridExport', 'DayHouse', 'DayConsumption'];
+        if ($balanceChanged) {
+            foreach ($balanceIdents as $ident) {
+                unset($state['totals'][$ident], $previousPowers[$ident]);
+            }
+            $state['balanceStart'] = 0;
+        }
+        $state['balanceKey'] = $balanceKey;
         $powers = [];
         if ($valid) {
             $battery = $this->getGroupedValue('FarmBatteryPower');
@@ -1032,9 +1059,12 @@ PHP;
             }
         }
 
+        if ($valid && ($state['balanceStart'] ?? 0) === 0) {
+            $state['balanceStart'] = $canIntegrate && !$balanceChanged ? max($previousTime, $midnight) : $now;
+        }
         foreach (self::DAILY as $ident => $label) {
             $total = $state['totals'][$ident] ?? 0.0;
-            if ($canIntegrate) {
+            if ($canIntegrate && isset($previousPowers[$ident])) {
                 $seconds = $now - max($previousTime, $midnight);
                 $startPower = $previousPowers[$ident];
                 if ($previousTime < $midnight) {
@@ -1049,6 +1079,7 @@ PHP;
         $state['powers'] = $powers;
         $this->WriteAttributeString('DailyTotals', json_encode($state));
         $this->setGroupedValue('DayStart', $state['start']);
+        $this->setGroupedValue('DayBalanceStart', $state['balanceStart'] ?? 0);
     }
 
     private function batteryWithFallback(array $values, int $configuredCapacity, int $soc): array
@@ -1088,21 +1119,19 @@ PHP;
         return -1;
     }
 
-    private function publishFarmConsumption(array $meters, int $farm, int $heatPump, array &$notes): void
+    private function readFarmMeterPowers(array $meters, int $farm, int $heatPump, array &$notes): ?array
     {
         $farmMeter = $meters['Index ' . $farm] ?? [];
         $heatPumpMeter = $meters['Index ' . $heatPump] ?? [];
         if (($farmMeter['Typ'] ?? null) !== 5 || ($heatPumpMeter['Typ'] ?? null) !== 4) {
             $notes['Farm-Verbrauch'] = 'Farmzähler (Typ 5) und Wärmepumpenzähler (Typ 4) zuordnen.';
-            return;
+            return null;
         }
-
         $total = $farmMeter['L1 (W)'] + $farmMeter['L2 (W)'] + $farmMeter['L3 (W)'];
         $heat = $heatPumpMeter['L1 (W)'] + $heatPumpMeter['L2 (W)'] + $heatPumpMeter['L3 (W)'];
-        $this->setGroupedValue('FarmConsumption', $total);
+        $this->setGroupedValue('FarmMeterPower', $total);
         $this->setGroupedValue('HeatPumpConsumption', $heat);
-        $this->setGroupedValue('FarmHouseConsumption', $total - $heat);
-        $this->setGroupedValue('FarmConsumptionValid', true);
+        return [$total, $heat];
     }
 
     private function decodeText(array $registers): string

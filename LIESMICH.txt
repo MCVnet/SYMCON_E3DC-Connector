@@ -1,4 +1,4 @@
-E3DC Farm 0.8.3 für IP-Symcon 9.0
+E3DC Farm 0.8.4 für IP-Symcon 9.0
 
 Installation
 1. Auf dem Rechner, auf dem der IP-Symcon-Dienst läuft, den Ordner
@@ -181,3 +181,12 @@ verwendet. Typ 4 bedeutet externer Verbrauch. Bei weiteren externen
 Verbrauchern die Zuordnung prüfen. Ein einzelner verfügbarer
 Wallbox-Slot wird ebenfalls erkannt. Fest gewählte Indizes haben
 Vorrang. Ergebnis: Diagnose und Status → Zähler- und Wallbox-Zuordnung.
+
+Farmbilanz prüfen
+Der Typ-5-Zähler kann je Installation einen anderen Messpunkt
+abbilden. „Farmzähler – vorzeichenbehaftete Leistung (W)“ zeigt
+seinen Wert. Falls er mit der Netzleistung des Portals übereinstimmt,
+„Farmzähler misst Netzbezug und Einspeisung“ einschalten.
+Die Verbrauchs- und Netzbilanz beginnt mit der korrigierten Zuordnung
+neu. Unplausible Messpunkte werden nicht hochgezählt. Die übrigen
+bereits erfassten Tageszähler bleiben erhalten.
