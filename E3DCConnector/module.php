@@ -211,7 +211,7 @@ class E3DCConnector extends IPSModule
         $this->setGroupedValue('FarmConsumptionValid', false);
         $this->setGroupedValue('SGReadyValid', false);
         $this->setGroupedValue('WallboxAvailable', false);
-        $this->publishAccessories([]);
+        $this->markAccessoryDataStale();
         $this->publishRscpEnergy([]);
         if (!$this->ReadPropertyBoolean('Active')) {
             $daily = $this->decodeJsonArray(@$this->ReadAttributeString('DailyTotals')) ?? [];
@@ -586,13 +586,6 @@ PHP;
             return $this->getGroupedValue('LanSetupStatus');
         }
 
-        if ($mode !== $result['mode']) {
-            $this->UpdateFormField('OperatingMode', 'value', $result['mode']);
-        }
-        $this->UpdateFormField('Host', 'value', $result['master']);
-        if ($result['second'] !== '') {
-            $this->UpdateFormField('SecondHost', 'value', $result['second']);
-        }
         return $result['message'] . "\n\nAutomatische Übernahme gestartet. Das Ergebnis steht unter LAN-Einrichtung.";
     }
 
@@ -828,7 +821,6 @@ PHP;
         $this->runTimerPoll(function (): void {
             $this->SetTimerInterval('InitialPollTimer', 0);
             $this->pollMeasurements();
-            $this->refreshAccessoryTable();
         });
     }
 
@@ -1111,12 +1103,6 @@ PHP;
         return array_values($rows);
     }
 
-    private function refreshAccessoryTable(): void
-    {
-        $this->UpdateFormField('AccessoryOptions', 'values',
-            json_encode($this->accessoryTableRows(), JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE));
-    }
-
     private function decodeJsonArray(mixed $value): ?array
     {
         $decoded = is_string($value) ? json_decode($value, true) : null;
@@ -1164,57 +1150,20 @@ PHP;
         return $this->accessoryName('Zaehler' . $index, $settings, $legacyNames, $legacy !== '' ? $legacy : 'Zusatzverbrauch');
     }
 
-    private function publishAccessories(array $groups, int $farm = -1, int $heatPump = -1): void
+    private function markAccessoryDataStale(): void
     {
-        $ident = 'CategoryAccessories';
-        $root = @IPS_GetObjectIDByIdent($ident, $this->InstanceID);
-        $names = $this->accessoryLegacyNames();
-        $settings = $this->accessorySettings();
-        if ($settings === null || $names === null || ($root === false && array_filter($groups) === [])) {
+        $root = @IPS_GetObjectIDByIdent('CategoryAccessories', $this->InstanceID);
+        if ($root === false || !IPS_CategoryExists($root)) {
             return;
         }
-        $firstDetection = $root === false;
-        $root = $this->accessoryCategory($this->InstanceID, $ident, 'Zubehör und Messpunkte');
-        IPS_SetPosition($root, 70);
-        $current = [];
-        foreach ($groups as $kind => $entries) {
-            foreach ($entries as $label => $fields) {
-                $index = (int) substr($label, strrpos($label, ' ') + 1);
-                $key = $kind . $index;
-                $visible = (bool) ($settings[$key]['Visible'] ?? true);
-                $defaultName = match (true) {
-                    $kind === 'Zaehler' && $index === $farm => 'Farmzähler',
-                    $kind === 'Zaehler' && $index === $heatPump => $this->additionalConsumerName($index, $settings, $names),
-                    $kind === 'Zaehler' => 'Zähler ' . $index,
-                    $kind === 'String' => 'MPP-Tracker ' . $index,
-                    $kind === 'WechselrichterZweit' => 'Wechselrichter ' . $index . ' – zweites Farmgerät',
-                    default => $kind . ' ' . $index
-                };
-                $category = $this->accessoryCategory($root, $key, $this->accessoryName($key, $settings, $names, $defaultName));
-                $current[] = $category;
-                IPS_SetHidden($category, !$visible);
-                $this->publishAccessoryValue($category, 'Aktuell', 'Daten aktuell', true);
-                foreach ($fields as $field => $value) {
-                    if (is_array($value)) {
-                        foreach ($value as $metric => $measurement) {
-                            $this->publishAccessoryValue($category, 'Value' . sha1($field . ' ' . $metric), $field . ' ' . $metric, $measurement);
-                        }
-                        continue;
-                    }
-                    $this->publishAccessoryValue($category, 'Value' . sha1($field), $field, $value);
-                }
-            }
-        }
         foreach (IPS_GetChildrenIDs($root) as $category) {
-            if (!in_array($category, $current, true) && IPS_CategoryExists($category)) {
-                $status = @IPS_GetObjectIDByIdent('Aktuell', $category);
-                if ($status !== false && IPS_VariableExists($status)) {
-                    SetValue($status, false);
-                }
+            if (!IPS_CategoryExists($category)) {
+                continue;
             }
-        }
-        if ($firstDetection && $current !== []) {
-            $this->refreshAccessoryTable();
+            $status = @IPS_GetObjectIDByIdent('Aktuell', $category);
+            if ($status !== false && IPS_VariableExists($status)) {
+                SetValue($status, false);
+            }
         }
     }
 
@@ -1306,9 +1255,7 @@ PHP;
         $kind = ['PVI' => 'Wechselrichter', 'PM' => 'Zaehler', 'WB' => 'Wallbox'][$group] ?? null;
         if ($kind !== null && !$this->containsOnlyRscpErrors($data)) {
             $key = $kind . ($secondDevice ? 'Zweit' : '') . $index;
-            if ($this->publishRscpAccessory($key, $names[$group] . ' ' . $index, $data, $secondDevice)) {
-                $this->refreshAccessoryTable();
-            }
+            $this->publishRscpAccessory($key, $names[$group] . ' ' . $index, $data, $secondDevice);
         }
         return $this->containsOnlyRscpErrors($data) ? 'Das Gerät hat keine Werte für diese Datengruppe geliefert.'
             : $names[$group] . ' per RSCP gelesen. Details stehen im Objektbaum.';
@@ -1340,19 +1287,17 @@ PHP;
         return true;
     }
 
-    private function publishRscpAccessory(string $key, string $label, array $data, bool $secondDevice): bool
+    private function publishRscpAccessory(string $key, string $label, array $data, bool $secondDevice): void
     {
         $root = $this->accessoryCategory($this->InstanceID, 'CategoryAccessories', 'Zubehör und Messpunkte');
         IPS_SetPosition($root, 70);
         $settings = $this->accessorySettings() ?? [];
-        $new = @IPS_GetObjectIDByIdent($key, $root) === false;
         $default = $label . ($secondDevice ? ' – zweites Farmgerät' : '');
         $category = $this->accessoryCategory($root, $key,
             $this->accessoryName($key, $settings, $this->accessoryLegacyNames() ?? [], $default));
         IPS_SetHidden($category, !($settings[$key]['Visible'] ?? true));
         $this->publishAccessoryValue($category, 'Aktuell', 'Daten gelesen', true);
         $this->publishJsonValue($category, 'RscpSnapshot', 'RSCP-Daten', $data);
-        return $new;
     }
 
     private function publishJsonValue(int $parent, string $ident, string $name, array $data): void
