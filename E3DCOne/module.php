@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../libs/FarmRscp.php';
 
+final class E3DCInstanceUnavailable extends ErrorException
+{
+}
+
 class E3DCOne extends IPSModule
 {
     private const EXTRA_GROUPS = [
@@ -748,6 +752,31 @@ PHP;
     }
 
     public function Poll(): void
+    {
+        $this->runTimerPoll($this->pollMeasurements(...));
+    }
+
+    private function runTimerPoll(callable $poll): void
+    {
+        $previous = set_error_handler(static function (int $severity, string $message, string $file, int $line) use (&$previous): bool {
+            if ((error_reporting() & $severity) === 0) {
+                return false;
+            }
+            if ($message === 'InstanceInterface is not available') {
+                throw new E3DCInstanceUnavailable($message, 0, $severity, $file, $line);
+            }
+            return $previous !== null ? (bool) $previous($severity, $message, $file, $line) : false;
+        });
+        try {
+            $poll();
+        } catch (E3DCInstanceUnavailable) {
+            // The next scheduled poll can run once Symcon exposes the instance again.
+        } finally {
+            restore_error_handler();
+        }
+    }
+
+    private function pollMeasurements(): void
     {
         if (!$this->ReadPropertyBoolean('Active')) {
             return;
@@ -1593,6 +1622,11 @@ PHP;
     }
 
     public function PollRscpSolar(): void
+    {
+        $this->runTimerPoll($this->pollRscpDayData(...));
+    }
+
+    private function pollRscpDayData(): void
     {
         if (!$this->ReadPropertyBoolean('Active') || !$this->ReadPropertyBoolean('ReadRscpSolar')) {
             return;
