@@ -53,32 +53,6 @@
           "caption": "Detailabfrage (Sekunden, 0 = nur manuell)",
           "minimum": 0,
           "maximum": 3600
-        },
-        {
-          "type": "ExpansionPanel",
-          "caption": "Abweichende RSCP-Anmeldung des Hauptgeräts",
-          "expanded": false,
-          "items": [
-            {
-              "type": "Label",
-              "caption": "Leere Felder verwenden die gemeinsamen RSCP-Zugangsdaten. Diese Einstellungen gelten nur für den Einzelgeräte-Port des Hauptgeräts."
-            },
-            {
-              "type": "ValidationTextBox",
-              "name": "MainRscpUser",
-              "caption": "RSCP-Benutzer des Hauptgeräts"
-            },
-            {
-              "type": "PasswordTextBox",
-              "name": "MainRscpPassword",
-              "caption": "Lokales Benutzerpasswort des Hauptgeräts"
-            },
-            {
-              "type": "PasswordTextBox",
-              "name": "MainRscpKey",
-              "caption": "RSCP-Verschlüsselungsschlüssel des Hauptgeräts"
-            }
-          ]
         }
       ],
       "expanded": true
@@ -359,6 +333,11 @@
       "type": "Button",
       "caption": "Jetzt auslesen",
       "onClick": "E3DCF_Poll($id); E3DCF_PollRscpSolar($id);"
+    },
+    {
+      "type": "Button",
+      "caption": "RSCP-Zubehör suchen",
+      "onClick": "echo E3DCF_ScanRscpAccessories($id);"
     },
     {
       "type": "Button",

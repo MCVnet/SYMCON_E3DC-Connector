@@ -254,6 +254,59 @@ final class FarmRscp
         return $result;
     }
 
+    public function readAccessoryInventory(string $host, int $port, string $user, string $password): array
+    {
+        $entries = [];
+        $warnings = [];
+        foreach (['PM', 'PVI', 'WB'] as $group) {
+            $session = new self($this->key);
+            try {
+                $socket = $session->openSession($host, $port, $user, $password);
+                try {
+                    $session->scanAccessoryGroup($socket, $group, $entries);
+                } finally {
+                    fclose($socket);
+                }
+            } catch (RuntimeException $error) {
+                $warnings[$error->getMessage()] = true;
+            }
+        }
+        return ['entries' => $entries, 'warning' => implode(' ', array_keys($warnings))];
+    }
+
+    private function scanAccessoryGroup($socket, string $group, array &$entries): void
+    {
+        if ($group === 'WB') {
+            $response = $this->exchange($socket, self::element(0x0E04101C, 0, ''))[0x0E84101C] ?? null;
+            if (($response[0] ?? null) !== self::CONTAINER) {
+                return;
+            }
+            $seen = [];
+            foreach ($response[1] as $key => $element) {
+                if (($key & 0xFFFFFFFF) !== 0x0E040001) {
+                    continue;
+                }
+                $index = self::decodeEnergy($element);
+                if (is_int($index) && $index >= 0 && $index <= 255 && !isset($seen[$index])) {
+                    $entries[] = ['WB', $index, 0];
+                    $seen[$index] = true;
+                }
+            }
+            return;
+        }
+        [$request, $metric] = $group === 'PM' ? [0x05040000, 0x05000014] : [0x02040000, 0x02000009];
+        for ($index = 0; $index < 8; $index++) {
+            $query = self::element($request + 1, 5, pack('v', $index)) . self::element($metric, 0, '');
+            $reply = $this->exchange($socket, self::element($request, self::CONTAINER, $query));
+            $container = $reply[$request + 0x00800000] ?? null;
+            $field = ($container[0] ?? null) === self::CONTAINER ? ($container[1][$metric + 0x00800000] ?? null) : null;
+            $type = $field !== null ? self::decodeEnergy($field) : null;
+            if (is_int($type) && $type > 0 && ($group !== 'PM' || $type !== 6)) {
+                $entries[] = [$group, $index, $type];
+            }
+        }
+    }
+
     public function testAuthentication(string $host, int $port, string $user, string $password): void
     {
         fclose($this->openSession($host, $port, $user, $password));

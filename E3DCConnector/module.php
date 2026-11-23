@@ -67,9 +67,6 @@ class E3DCConnector extends IPSModule
         $this->RegisterPropertyString('FarmRscpUser', 'local.user');
         $this->RegisterPropertyString('FarmRscpPassword', '');
         $this->RegisterPropertyString('FarmRscpKey', '');
-        $this->RegisterPropertyString('MainRscpUser', '');
-        $this->RegisterPropertyString('MainRscpPassword', '');
-        $this->RegisterPropertyString('MainRscpKey', '');
         $this->RegisterAttributeInteger('RscpSolarReadAt', 0);
         $this->RegisterTimer('RscpSolarTimer', 0, 'if (IPS_InstanceExists($_IPS["TARGET"])) { E3DCF_PollRscpSolar($_IPS["TARGET"]); }');
         $this->RegisterPropertyInteger('Interval', 15);
@@ -458,7 +455,7 @@ class E3DCConnector extends IPSModule
             $status .= ' – weiteres Farmgerät fehlt';
         }
         $this->setGroupedValue('OperatingModeStatus', $status);
-        $useMainDevice = !$farm || $this->hasSeparateMainCredentials();
+        $useMainDevice = !$farm;
         $positions = ['Farm' => 10, 'FarmStorage' => 15, 'Master' => 20, 'Storage' => 25,
             'Second' => 30, 'SecondStorage' => 35, 'Wallbox' => 40, 'Daily' => 50,
             'Identity' => 60, 'Diagnostics' => 90];
@@ -895,7 +892,7 @@ PHP;
                 $this->setGroupedValue($ident, false);
             }
             $farmMode = $this->isFarmMode();
-            $readMainDevice = !$farmMode || $this->hasSeparateMainCredentials();
+            $readMainDevice = !$farmMode;
             $live = $readMainDevice ? $this->readLocalRscpDevice($host, false, $notes) : [];
             if (!$readMainDevice) {
                 $this->setGroupedValue('RscpCapacityStatus', 'Im Farmbetrieb wird der Farmcontroller abgefragt.');
@@ -951,14 +948,7 @@ PHP;
         }
     }
 
-    private function hasSeparateMainCredentials(): bool
-    {
-        return trim($this->ReadPropertyString('MainRscpUser')) !== ''
-            || $this->ReadPropertyString('MainRscpPassword') !== ''
-            || $this->ReadPropertyString('MainRscpKey') !== '';
-    }
-
-    private function rscpCredentials(bool $mainDevice = false): ?array
+    private function rscpCredentials(): ?array
     {
         if (!$this->ReadPropertyBoolean('ReadRscpSolar')) {
             return null;
@@ -966,14 +956,6 @@ PHP;
         $user = trim($this->ReadPropertyString('FarmRscpUser'));
         $password = $this->ReadPropertyString('FarmRscpPassword');
         $key = $this->ReadPropertyString('FarmRscpKey');
-        if ($mainDevice) {
-            $mainUser = trim($this->ReadPropertyString('MainRscpUser'));
-            $mainPassword = $this->ReadPropertyString('MainRscpPassword');
-            $mainKey = $this->ReadPropertyString('MainRscpKey');
-            $user = $mainUser !== '' ? $mainUser : $user;
-            $password = $mainPassword !== '' ? $mainPassword : $password;
-            $key = $mainKey !== '' ? $mainKey : $key;
-        }
         return $user !== '' && $password !== '' && $key !== '' ? [$user, $password, $key] : null;
     }
 
@@ -1055,7 +1037,7 @@ PHP;
             return [];
         }
         $port = $this->ReadPropertyInteger('DeviceRscpPort');
-        $credentials = $this->rscpCredentials(!$second);
+        $credentials = $this->rscpCredentials();
         if ($port < 1 || $port > 65535 || $credentials === null) {
             $notes[$label] = 'RSCP-Port und Zugangsdaten prüfen.';
             $this->setGroupedValue($status, $notes[$label]);
@@ -1160,11 +1142,12 @@ PHP;
             $key = IPS_GetObject($category)['ObjectIdent'];
             $current = @IPS_GetObjectIDByIdent('Aktuell', $category);
             $setting = $rows[$key] ?? [];
+            $roleId = @IPS_GetObjectIDByIdent('Role', $category);
             $rows[$key] = [
                 'Key' => $key,
                 'Name' => ($setting['Name'] ?? '') !== '' ? $setting['Name'] : IPS_GetName($category),
                 'Visible' => $setting['Visible'] ?? true,
-                'Role' => $roles[$key] ?? '',
+                'Role' => $roleId !== false && IPS_VariableExists($roleId) ? GetValue($roleId) : ($roles[$key] ?? ''),
                 'Current' => $current !== false && IPS_VariableExists($current) && GetValue($current)
                     ? 'Erkannt' : 'Zuletzt erkannt'
             ];
@@ -1290,10 +1273,51 @@ PHP;
                 if ($farm && $this->hasFarmPeer()) {
                     $this->ReadRscpDeviceOverview(true);
                 }
+                $this->collectRscpAccessories();
             } finally {
                 IPS_SemaphoreLeave($lock);
             }
         });
+    }
+
+    public function ScanRscpAccessories(): string
+    {
+        $message = $this->collectRscpAccessories();
+        $this->ReloadForm();
+        return $message;
+    }
+
+    private function collectRscpAccessories(): string
+    {
+        $farm = $this->isFarmMode();
+        $targets = $farm ? [[false, true]] : [[false, false]];
+        if ($farm && $this->hasFarmPeer()) {
+            $targets[] = [true, false];
+        }
+        $messages = [];
+        foreach ($targets as [$second, $controller]) {
+            $label = $controller ? 'Farmcontroller' : ($second ? 'Zweites Farmgerät' : 'Hauptgerät');
+            try {
+                [$client, $host, $port, $user, $password] = $this->rscpTarget($second, $controller);
+                $result = $client->readAccessoryInventory($host, $port, $user, $password);
+                foreach ($result['entries'] as [$group, $index, $type]) {
+                    [$prefix, $name, $role] = match ($group) {
+                        'PM' => ['Zaehler', 'Leistungsmesser', match ($type) {
+                            4 => 'Zusatzverbrauchszähler', 5 => 'Farmzähler', default => 'Leistungsmesser'
+                        }],
+                        'PVI' => ['Wechselrichter', 'Wechselrichter', 'Wechselrichter'],
+                        'WB' => ['Wallbox', 'Wallbox', 'Wallbox']
+                    };
+                    $key = $prefix . ($controller ? 'Farm' : ($second ? 'Zweit' : '')) . $index;
+                    $this->publishRscpAccessory($key, $name . ' ' . $index, [], $second, $role);
+                }
+                $messages[] = $label . ': ' . count($result['entries']) . ' Zubehörgeräte erkannt.'
+                    . ($result['warning'] !== '' ? ' ' . $result['warning'] : '');
+            } catch (RuntimeException $error) {
+                $messages[] = $label . ': ' . $error->getMessage();
+            }
+        }
+        return implode("\n", $messages);
     }
 
     public function ReadRscpDetails(bool $secondDevice, string $group, int $index, bool $farmController = false): string
@@ -1307,7 +1331,7 @@ PHP;
         $root = $this->accessoryCategory($this->InstanceID, 'CategoryRscpDetails', 'RSCP-Gerätedetails');
         $device = $this->accessoryCategory($root, $farmController ? 'FarmController' : ($secondDevice ? 'Device2' : 'Device1'),
             $farmController ? 'Farmcontroller' : ($secondDevice ? 'Zweites Farmgerät' : 'Hauptgerät'));
-        IPS_SetHidden($device, !$farmController && !$secondDevice && $this->isFarmMode() && !$this->hasSeparateMainCredentials());
+        IPS_SetHidden($device, !$farmController && !$secondDevice && $this->isFarmMode());
         $category = $this->accessoryCategory($device, $group . $index, $names[$group] . (in_array($group, ['INFO', 'EMS'], true) ? '' : ' ' . $index));
         try {
             $data = $client->readDetails($host, $port, $user, $password, $group, $index);
@@ -1389,7 +1413,7 @@ PHP;
         return true;
     }
 
-    private function publishRscpAccessory(string $key, string $label, array $data, bool $secondDevice): void
+    private function publishRscpAccessory(string $key, string $label, array $data, bool $secondDevice, string $role = ''): void
     {
         $root = $this->accessoryCategory($this->InstanceID, 'CategoryAccessories', 'Zubehör und Messpunkte');
         IPS_SetPosition($root, 70);
@@ -1399,7 +1423,12 @@ PHP;
             $this->accessoryName($key, $settings, $this->accessoryLegacyNames() ?? [], $default));
         IPS_SetHidden($category, !($settings[$key]['Visible'] ?? true));
         $this->publishAccessoryValue($category, 'Aktuell', 'Daten gelesen', true);
-        $this->publishJsonValue($category, 'RscpSnapshot', 'RSCP-Daten', $data);
+        if ($role !== '') {
+            $this->publishAccessoryValue($category, 'Role', 'Funktion', $role);
+        }
+        if ($data !== []) {
+            $this->publishJsonValue($category, 'RscpSnapshot', 'RSCP-Daten', $data);
+        }
     }
 
     private function publishJsonValue(int $parent, string $ident, string $name, array $data): void
@@ -1451,7 +1480,7 @@ PHP;
     {
         $farmMode = $this->isFarmMode();
         $targets = [];
-        if (!$farmMode || $includeMainDevice || $this->hasSeparateMainCredentials()) {
+        if (!$farmMode || $includeMainDevice) {
             $targets['Hauptgerät'] = [false, false];
         }
         if ($farmMode) {
@@ -1481,7 +1510,7 @@ PHP;
         if ($farmController && ($secondDevice || !$this->isFarmMode())) {
             throw new RuntimeException('Den Farmcontroller nur im Farmbetrieb als eigenes Ziel wählen.');
         }
-        $credentials = $this->rscpCredentials(!$secondDevice && !$farmController);
+        $credentials = $this->rscpCredentials();
         if (!$this->ReadPropertyBoolean('Active') || $credentials === null) {
             throw new RuntimeException('Instanz und lokales RSCP aktivieren und Zugangsdaten hinterlegen.');
         }
