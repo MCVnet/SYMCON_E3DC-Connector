@@ -49,6 +49,18 @@
       "type": "SelectInstance",
       "name": "SecondOne",
       "caption": "Zweiter one für die Farm-Batteriewerte"
+    },
+    {
+      "type": "SelectVariable",
+      "name": "ForecastSource",
+      "caption": "Symcon-Variable für Solarprognose heute (kWh)"
+    },
+    {
+      "type": "NumberSpinner",
+      "name": "CapacityFallbackWh",
+      "caption": "Nutzbare Speicherkapazität als Ersatzwert (Wh, 0 = aus)",
+      "minimum": 0,
+      "maximum": 1000000
     }
   ],
   "actions": [

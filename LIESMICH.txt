@@ -1,4 +1,4 @@
-E3DC Farm 0.5 für IP-Symcon 9.0
+E3DC Farm 0.6 für IP-Symcon 9.0
 
 Installation
 1. Auf dem Rechner, auf dem der IP-Symcon-Dienst läuft, den Ordner
@@ -29,7 +29,7 @@ Anzeigen und Grenzen
   Die Slot-Erkennung ermittelt kein Wallbox-Modell.
 - Bei Kommunikationsfehlern bleiben die zuletzt empfangenen Werte
   sichtbar. „Letzte erfolgreiche Abfrage“ zeigt ihren Zeitstand.
-- Version 0.5 sendet ausschließlich Modbus-Leseanfragen im
+- Version 0.6 sendet ausschließlich Modbus-Leseanfragen im
   E3/DC Simple Mode. Optionale Detailgruppen stehen als JSON
   in je einer Stringvariablen. Geräteinformationen und die bisherigen
   Leistungswerte sind separate Variablen.
@@ -72,3 +72,30 @@ als separate kWh-Variablen zur Verfügung (Modbus 40208 und 40206).
 Der Farmmaster zeigt zusätzlich die Summe beider one an, wenn die
 zweite Instanz für die Farm-Batteriewerte ausgewählt ist. Die
 Aktuell-Variablen geben an, ob für die Anzeige gültige Daten vorliegen.
+
+Variablen für die Farm-Leistungsübersicht
+PV- und Batterieleistung addieren die Werte aus beiden one.
+Die Wallbox-Leistung und zusätzliche Erzeugung kommen vom Farmmaster.
+Farm-Netzleistung: Farm-Gesamtverbrauch + Wallbox-Leistung
+  - Farm-PV-Leistung - weitere Einspeiser + Farm-Batterieleistung.
+Positiv bedeutet Bezug, negativ Einspeisung. Die Momentanautarkie
+ist der aktuell ohne Netzbezug gedeckte Anteil am Verbrauch.
+Die Bilanz setzt voraus, dass der Farm-Verbrauchszähler die Wallbox
+separat lässt und die PV-Werte der beiden Geräte sich nicht überlappen.
+Bei PV-Produktion und ladender Wallbox mit dem Portal vergleichen.
+Farm-Leistungswerte benötigen keine gültigen Kapazitätsregister.
+
+Tageswerte
+Der Farmmaster sammelt die Tagesenergie in kWh ab dem ersten
+gültigen Messpunkt. Die Zähler werden nach Serverzeit am Tageswechsel
+zurückgesetzt. Längere Abfragelücken werden nicht hochgerechnet.
+Die batterieseitige Lade-/Entladeenergie basiert auf der summierten
+Farmleistung. Gleichzeitig gegenläufige Leistungen heben sich auf.
+Netzbezug und Einspeisung stammen aus der Farm-Leistungsbilanz.
+Die Solarprognose kann aus einer vorhandenen numerischen Symcon-
+Variable in kWh übernommen werden. Modbus liefert hier keine Prognose.
+
+Kapazitäts-Ersatzwert
+Liefert ein one keine plausiblen Energieregister, kann je Instanz
+die bekannte nutzbare Kapazität in Wh eingetragen werden.
+Die Restenergie wird dann aus Kapazität und Geräte-SOC geschätzt.
