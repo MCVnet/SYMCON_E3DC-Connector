@@ -34,6 +34,7 @@ class E3DCOne extends IPSModule
         $this->RegisterPropertyBoolean('ReadWallbox', false);
         $this->RegisterPropertyInteger('FarmConsumptionMeter', -1);
         $this->RegisterPropertyInteger('HeatPumpMeter', -1);
+        $this->RegisterPropertyInteger('SecondOne', 0);
         $this->RegisterTimer('PollTimer', 0, 'E3DCF_Poll($_IPS["TARGET"]);');
 
         $position = 0;
@@ -58,6 +59,9 @@ class E3DCOne extends IPSModule
         $this->RegisterVariableInteger('HeatPumpConsumption', 'Wärmepumpe (W)', '', 32);
         $this->RegisterVariableInteger('FarmHouseConsumption', 'Hausverbrauch ohne Wärmepumpe (W)', '', 33);
         $this->RegisterVariableBoolean('FarmConsumptionValid', 'Farm-Verbrauchswerte aktuell', '', 34);
+        $this->RegisterVariableFloat('FarmBatterySOC', 'Farm-Batterieladezustand (%)', '', 35);
+        $this->RegisterVariableInteger('FarmBatteryPower', 'Farm-Batterieleistung (W)', '', 36);
+        $this->RegisterVariableBoolean('FarmBatteryValid', 'Farm-Batteriewerte aktuell', '', 37);
         $position = 24;
         foreach (self::EXTRA_GROUPS as $ident => $label) {
             $this->RegisterVariableString($ident, $label, '', $position++);
@@ -68,6 +72,7 @@ class E3DCOne extends IPSModule
     {
         parent::ApplyChanges();
         $this->SetTimerInterval('PollTimer', 0);
+        $this->SetValue('FarmBatteryValid', false);
         if (trim($this->ReadPropertyString('Host')) === '') {
             $this->SetStatus(104);
             return;
@@ -113,6 +118,7 @@ class E3DCOne extends IPSModule
             $this->SetValue('DataStatus', 'Messwerte aktualisiert');
             $this->SetStatus(102);
         } catch (RuntimeException $error) {
+            $this->SetValue('FarmBatteryValid', false);
             $this->SetValue('DataStatus', $error->getMessage());
             $this->SetStatus(201);
         } finally {
@@ -242,6 +248,7 @@ class E3DCOne extends IPSModule
             }
         }
         $this->publishJson('BatteryDetails', $batteryData);
+        $this->publishFarmBattery($batteryData, $notes);
 
         $remote = [];
         foreach ([40186 => 'Zuletzt geschriebene Einspeisegrenze', 40188 => 'Leistungsabgabe bereit',
@@ -283,6 +290,50 @@ class E3DCOne extends IPSModule
         $this->publishJson('Inverters', $inverters);
 
         $this->publishJson('ReadNotes', $notes);
+    }
+
+    private function publishFarmBattery(array $local, array &$notes): void
+    {
+        $peer = $this->ReadPropertyInteger('SecondOne');
+        if ($peer === 0) {
+            return;
+        }
+        $moduleId = '{AAEF96D2-6F24-4FF9-9C9C-C7FECE2C1559}';
+        if ($peer === $this->InstanceID || !IPS_InstanceExists($peer)
+            || IPS_GetInstance($peer)['ModuleInfo']['ModuleID'] !== $moduleId) {
+            $this->SetValue('FarmBatteryValid', false);
+            $notes['Farm-Batterie'] = 'Die Instanz des zweiten one auswählen.';
+            return;
+        }
+        $detailsId = @IPS_GetObjectIDByIdent('BatteryDetails', $peer);
+        $powerId = @IPS_GetObjectIDByIdent('Battery', $peer);
+        $statusId = @IPS_GetObjectIDByIdent('LastSuccess', $peer);
+        $remote = [];
+        if ($detailsId > 0 && $powerId > 0 && $statusId > 0) {
+            $peerInterval = max(5, min(3600, IPS_GetProperty($peer, 'Interval')));
+            $maxAge = 2 * $peerInterval + 10;
+            if (time() - GetValue($statusId) <= $maxAge
+                && time() - IPS_GetVariable($detailsId)['VariableUpdated'] <= $maxAge) {
+                $remote = json_decode(GetValue($detailsId), true) ?? [];
+            }
+        }
+
+        foreach ([$local, $remote] as $storage) {
+            if (($storage['Max. speicherbare Energie (Wh)'] ?? 0) <= 0
+                || !isset($storage['Verbleibende Energie (Wh)'])
+                || $storage['Verbleibende Energie (Wh)'] < 0
+                || $storage['Verbleibende Energie (Wh)'] > $storage['Max. speicherbare Energie (Wh)']) {
+                $this->SetValue('FarmBatteryValid', false);
+                $notes['Farm-Batterie'] = 'Aktuelle, plausible Speicherenergie beider one erforderlich.';
+                return;
+            }
+        }
+
+        $energy = $local['Verbleibende Energie (Wh)'] + $remote['Verbleibende Energie (Wh)'];
+        $capacity = $local['Max. speicherbare Energie (Wh)'] + $remote['Max. speicherbare Energie (Wh)'];
+        $this->SetValue('FarmBatterySOC', round(100 * $energy / $capacity, 1));
+        $this->SetValue('FarmBatteryPower', $this->GetValue('Battery') + GetValue($powerId));
+        $this->SetValue('FarmBatteryValid', true);
     }
 
     private function publishFarmConsumption(array $meters, int $farm, int $heatPump, array &$notes): void

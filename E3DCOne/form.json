@@ -44,6 +44,11 @@
       "caption": "Index Wärmepumpenzähler (−1: aus)",
       "minimum": -1,
       "maximum": 7
+    },
+    {
+      "type": "SelectInstance",
+      "name": "SecondOne",
+      "caption": "Zweiter one für die Farm-Batteriewerte"
     }
   ],
   "actions": [
