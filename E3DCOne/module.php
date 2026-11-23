@@ -43,6 +43,8 @@ class E3DCOne extends IPSModule
         parent::Create();
         $this->RegisterPropertyBoolean('Active', true);
         $this->RegisterPropertyString('Host', '');
+        $this->RegisterPropertyString('OperatingMode', 'auto');
+        $this->RegisterPropertyString('ExternalSystems', '[]');
         $this->RegisterPropertyBoolean('ReadRscpSolar', false);
         $this->RegisterPropertyInteger('FarmRscpPort', 5034);
         $this->RegisterPropertyString('FarmRscpUser', 'local.user');
@@ -84,6 +86,7 @@ class E3DCOne extends IPSModule
         $this->maintainGroupedVariable('Wallboxes', 'Wallbox-Erkennung', '', VARIABLETYPE_STRING);
         $this->maintainGroupedVariable('LastSuccess', 'Letzte erfolgreiche Abfrage', '~UnixTimestamp', VARIABLETYPE_INTEGER);
         $this->maintainGroupedVariable('DataStatus', 'Datenstatus', '', VARIABLETYPE_STRING);
+        $this->maintainGroupedVariable('OperatingModeStatus', 'Betriebsart', '', VARIABLETYPE_STRING);
         $this->maintainGroupedVariable('Manufacturer', 'Hersteller', '', VARIABLETYPE_STRING);
         $this->maintainGroupedVariable('Model', 'Modell', '', VARIABLETYPE_STRING);
         $this->maintainGroupedVariable('Serial', 'Seriennummer', '', VARIABLETYPE_STRING);
@@ -158,6 +161,8 @@ class E3DCOne extends IPSModule
     {
         parent::ApplyChanges();
         $this->maintainGroupedVariables();
+        $this->updateOperatingLayout();
+        $this->publishExternalSystems();
         $this->SetTimerInterval('PollTimer', 0);
         $this->SetTimerInterval('RscpSolarTimer', 0);
         $this->WriteAttributeInteger('RscpSolarReadAt', 0);
@@ -194,18 +199,18 @@ class E3DCOne extends IPSModule
     }
 
     private const GROUPS = [
-            'Farm' => ['Farm live', [
+            'Farm' => ['Farm – Gesamtanlage', [
                 'FarmPV', 'FarmGrid', 'FarmGridImport', 'FarmGridExport', 'FarmConsumption',
                 'FarmHouseConsumption', 'HeatPumpConsumption', 'FarmAutarky',
-                'FarmWallboxPower', 'FarmPowerValid', 'FarmConsumptionValid', 'FarmMeterPower'
+                'FarmWallboxPower', 'FarmPowerValid', 'FarmConsumptionValid', 'FarmMeterPower',
+                'FarmBatterySOC', 'FarmBatteryPower', 'FarmBatteryChargePower', 'FarmBatteryDischargePower', 'FarmBatteryCapacity', 'FarmBatteryEnergy', 'FarmBatteryValid'
             ]],
             'Storage' => ['Batterie und Speicher', [
-                'FarmBatterySOC', 'FarmBatteryPower', 'FarmBatteryChargePower', 'FarmBatteryDischargePower',
-                'FarmBatteryCapacity', 'FarmBatteryEnergy', 'FarmBatteryValid', 'SOC', 'Battery',
+                'SOC', 'Battery',
                 'BatteryChargePower', 'BatteryDischargePower', 'BatteryCapacity', 'BatteryEnergy',
                 'BatteryEnergyValid', 'BatteryDetails'
             ]],
-            'Wallbox' => ['Wallbox', [
+            'Wallbox' => ['Wallbox – Übersicht', [
                 'WallboxAvailable', 'WallboxPower', 'WallboxSolar', 'WallboxCharging',
                 'WallboxChargeAllowed', 'WallboxSolarMode', 'WallboxPhaseMode',
                 'WallboxVehicleConnected', 'Wallboxes', 'WallboxDetails'
@@ -218,11 +223,11 @@ class E3DCOne extends IPSModule
                 'OneAutarky', 'OneSelfConsumption', 'OneEfficiencyValid',
                 'Manufacturer', 'Model', 'Serial', 'Firmware', 'ModbusVersion'
             ]],
-            'Second' => ['Zweiter one', [
+            'Second' => ['Weiteres Farmgerät', [
                 'SecondOneValid', 'SecondPV', 'SecondBattery', 'SecondSOC', 'SecondCapacity'
             ]],
             'Diagnostics' => ['Diagnose und Status', [
-                'DataStatus', 'LastSuccess', 'LanSetupStatus', 'ReadNotes', 'DetectedFarmDevices', 'RegisterCount',
+                'OperatingModeStatus', 'DataStatus', 'LastSuccess', 'LanSetupStatus', 'ReadNotes', 'DetectedFarmDevices', 'RegisterCount',
                 'PowerMeters', 'DCStrings', 'Inverters', 'SGReadyState', 'SGReadyValid',
                 'EmergencyState', 'Emergency', 'EMS', 'EMSFlags', 'EfficiencyRaw', 'RemoteStatus'
             ]]
@@ -264,6 +269,15 @@ class E3DCOne extends IPSModule
         $original = @IPS_GetObjectIDByIdent($ident, $this->InstanceID);
         if ($original !== false && !IPS_VariableExists($original)) {
             return;
+        }
+        if ($original === false && $groupIdent === 'E3DCGroupFarm') {
+            $storage = @IPS_GetObjectIDByIdent('E3DCGroupStorage', $this->InstanceID);
+            if ($storage !== false && IPS_CategoryExists($storage)) {
+                $previous = @IPS_GetObjectIDByIdent($ident, $storage);
+                if ($previous !== false && IPS_VariableExists($previous)) {
+                    $original = $previous;
+                }
+            }
         }
         if ($existing !== false) {
             // Only remove links created by the previous layout for this original variable.
@@ -327,12 +341,106 @@ class E3DCOne extends IPSModule
         return GetValue($this->groupedVariableID($ident));
     }
 
-    public function DiscoverLAN(string $network, string $master, int $port, int $unit): string
+    private function hasFarmPeer(): bool
+    {
+        return trim($this->ReadPropertyString('SecondHost')) !== '' || $this->ReadPropertyInteger('SecondOne') !== 0;
+    }
+
+    private function isFarmMode(): bool
+    {
+        return match ($this->ReadPropertyString('OperatingMode')) {
+            'farm' => true,
+            'standalone' => false,
+            default => $this->hasFarmPeer()
+        };
+    }
+
+    private function updateOperatingLayout(): void
+    {
+        $farm = $this->isFarmMode();
+        $status = $farm ? 'Farm' : 'Einzelgerät';
+        if ($farm && !$this->hasFarmPeer()) {
+            $status .= ' – weiteres Farmgerät fehlt';
+        }
+        $this->setGroupedValue('OperatingModeStatus', $status);
+        foreach ([
+            'Farm' => ['Farm – Gesamtanlage', !$farm, 10],
+            'Master' => [$farm ? 'Farmmaster – Gerätedaten' : 'Einzelgerät – Live und Gerätedaten', false, 20],
+            'Storage' => ['Batterie und Speicher des Hauptgeräts', false, 30],
+            'Second' => ['Weiteres Farmgerät', !$farm, 40],
+            'Wallbox' => ['Wallbox – Übersicht', false, 50],
+            'Daily' => ['Tageswerte und Prognose', false, 60],
+            'Diagnostics' => ['Diagnose und Status', false, 90]
+        ] as $group => [$name, $hidden, $position]) {
+            $category = @IPS_GetObjectIDByIdent('E3DCGroup' . $group, $this->InstanceID);
+            if ($category !== false && IPS_CategoryExists($category)) {
+                IPS_SetName($category, $name);
+                IPS_SetHidden($category, $hidden);
+                IPS_SetPosition($category, $position);
+            }
+        }
+    }
+
+    private function publishExternalSystems(): void
+    {
+        $rows = json_decode($this->ReadPropertyString('ExternalSystems'), true);
+        $root = @IPS_GetObjectIDByIdent('CategoryExternalSystems', $this->InstanceID);
+        if (!is_array($rows) || $rows === []) {
+            if ($root !== false) {
+                IPS_SetHidden($root, true);
+            }
+            return;
+        }
+        $root = $this->accessoryCategory($this->InstanceID, 'CategoryExternalSystems', 'Externe Systeme');
+        IPS_SetPosition($root, 80);
+        IPS_SetHidden($root, false);
+        $current = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $source = (int) ($row['Source'] ?? 0);
+            if ($source <= 0 || isset($current[$source])) {
+                continue;
+            }
+            $exists = IPS_VariableExists($source);
+            $parent = $exists ? IPS_GetParent($source) : 0;
+            while ($parent > 0 && $parent !== $this->InstanceID) {
+                $parent = IPS_GetParent($parent);
+            }
+            $value = $exists && $parent !== $this->InstanceID ? GetValue($source) : null;
+            $name = trim((string) ($row['Name'] ?? ''));
+            $category = $this->accessoryCategory($root, 'Quelle' . $source, $name ?: ($exists ? IPS_GetName($source) : 'Quelle ' . $source));
+            $current[$source] = $category;
+            IPS_SetHidden($category, false);
+            $this->publishAccessoryValue($category, 'Rolle', 'Rolle', match ($row['Role'] ?? '') {
+                'generation' => 'Erzeuger',
+                'consumption' => 'Verbraucher',
+                'meter' => 'Zähler',
+                default => 'Weiteres System',
+            });
+            $factor = ($row['Unit'] ?? 'W') === 'kW' ? 1000 : 1;
+            $watts = (is_int($value) || is_float($value)) ? (float) $value * $factor : NAN;
+            $valid = $this->ReadPropertyBoolean('Active') && is_finite($watts);
+            $this->publishAccessoryValue($category, 'Verfuegbar', 'Messwert verfügbar', $valid);
+            if ($valid) {
+                $this->publishAccessoryValue($category, 'Leistung', 'Leistung (W)', $watts);
+            }
+        }
+        foreach (IPS_GetChildrenIDs($root) as $category) {
+            if (!in_array($category, $current, true) && IPS_CategoryExists($category)) {
+                IPS_SetHidden($category, true);
+            }
+        }
+    }
+
+    public function DiscoverLAN(string $network, string $master, int $port, int $unit, string $mode = ''): string
     {
         if (!$this->ReadPropertyBoolean('Active')) {
             return 'Instanz ist deaktiviert. Für die LAN-Suche zuerst aktivieren.';
         }
-        $result = $this->findDevices($network, $master, $port, $unit);
+        $mode = in_array($mode, ['auto', 'standalone', 'farm'], true) ? $mode : $this->ReadPropertyString('OperatingMode');
+        $result = $this->findDevices($network, $master, $port, $unit, $mode);
         if (!isset($result['master'])) {
             return $result['message'];
         }
@@ -346,10 +454,13 @@ if (!IPS_InstanceExists($id) || !IPS_VariableExists($statusId)) {
 }
 $settings = [
     'Host' => $_IPS['OneMaster'],
-    'SecondHost' => $_IPS['OneSecond'],
+    'OperatingMode' => $_IPS['OperatingMode'],
     'Port' => $_IPS['OnePort'],
     'Unit' => $_IPS['OneUnit']
 ];
+if ($_IPS['OneSecond'] !== '') {
+    $settings['SecondHost'] = $_IPS['OneSecond'];
+}
 foreach ($settings as $property => $value) {
     if (!IPS_SetProperty($id, $property, $value)) {
         SetValue($statusId, 'IP-Adressen konnten nicht gespeichert werden.');
@@ -360,13 +471,14 @@ if (!IPS_ApplyChanges($id)) {
     SetValue($statusId, 'IP-Adressen konnten nicht übernommen werden.');
     return;
 }
-SetValue($statusId, 'IP-Adressen übernommen: ' . implode(' und ', array_filter([$settings['Host'], $settings['SecondHost']])));
+SetValue($statusId, 'IP-Adressen übernommen: ' . implode(' und ', array_filter([$settings['Host'], $settings['SecondHost'] ?? ''])));
 E3DCF_Poll($id);
 PHP;
         $started = IPS_RunScriptTextEx($script, [
             'OneInstance' => $this->InstanceID,
             'OneSetupStatus' => $statusId,
             'OneMaster' => $result['master'],
+            'OperatingMode' => $mode,
             'OneSecond' => $result['second'],
             'OnePort' => $result['port'],
             'OneUnit' => $result['unit']
@@ -385,7 +497,7 @@ PHP;
             JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR);
     }
 
-    private function findDevices(string $network, string $master, int $port, int $unit): array
+    private function findDevices(string $network, string $master, int $port, int $unit, string $mode): array
     {
         $savedMaster = trim($this->ReadPropertyString('Host'));
         $network = trim($network);
@@ -444,12 +556,13 @@ PHP;
             $lines[] = $host . ' — E3/DC ' . ($device['model'] ?: '(Modell unbekannt)') . ' — ' . $device['serial'];
         }
         $summary = implode("\n", $lines);
-        if (count($matches) === 1) {
-            $host = array_key_first($matches);
-            if (($masterIp !== '' && $masterIp !== $host)
-                || trim($this->ReadPropertyString('SecondHost')) !== ''
-                || $this->ReadPropertyInteger('SecondOne') !== 0) {
-                return ['message' => $summary . "\n\nDie vorhandene Gerätekonfiguration bleibt erhalten."];
+        if ($mode === 'standalone' || count($matches) === 1) {
+            $host = $masterIp !== '' ? $masterIp : array_key_first($matches);
+            if (!isset($matches[$host]) || (count($matches) > 1 && $masterIp === '')) {
+                return ['message' => $summary . "\n\nFür ein Einzelgerät bitte die gewünschte IP-Adresse wählen."];
+            }
+            if ($mode !== 'standalone' && $this->hasFarmPeer()) {
+                return ['message' => $summary . "\n\nDie vorhandene Farmkonfiguration bleibt erhalten."];
             }
             return ['message' => $summary, 'master' => $host, 'second' => '', 'port' => $port, 'unit' => $unit];
         }
@@ -589,6 +702,7 @@ PHP;
         }
 
         try {
+            $this->publishExternalSystems();
             $this->setGroupedValue('FarmConsumptionValid', false);
             $host = trim($this->ReadPropertyString('Host'));
             $port = $this->ReadPropertyInteger('Port');
@@ -865,7 +979,9 @@ PHP;
             $notes['Speicherenergie (Quelle)'] = 'Restenergie aus eingetragener Kapazität und Geräte-SOC geschätzt.';
         }
         $this->setGroupedValue('BatteryEnergyValid', $hasBatteryEnergy);
-        $this->publishFarmBattery($batteryData, $farmBalance, $notes);
+        if ($this->isFarmMode()) {
+            $this->publishFarmBattery($batteryData, $farmBalance, $notes);
+        }
 
         $remote = [];
         foreach ([40186 => 'Zuletzt geschriebene Einspeisegrenze', 40188 => 'Leistungsabgabe bereit',
@@ -925,7 +1041,8 @@ PHP;
         if ($root === false && array_filter($groups) === []) {
             return;
         }
-        $root = $this->accessoryCategory($this->InstanceID, $ident, 'Zubehör');
+        $root = $this->accessoryCategory($this->InstanceID, $ident, 'Zubehör und Messpunkte');
+        IPS_SetPosition($root, 70);
         $current = [];
         foreach ($groups as $kind => $entries) {
             foreach ($entries as $label => $fields) {
@@ -1049,6 +1166,9 @@ PHP;
 
     private function controlDevice(bool $secondDevice, string $permission, callable $command): void
     {
+        if ($secondDevice && !$this->isFarmMode()) {
+            throw new RuntimeException('Das zweite Gerät ist nur im Farmbetrieb verfügbar.');
+        }
         if (!$this->ReadPropertyBoolean('Active') || !$this->ReadPropertyBoolean($permission)) {
             throw new RuntimeException('Diese Steuerung ist in der Instanz deaktiviert.');
         }
@@ -1327,7 +1447,7 @@ PHP;
         }
         $this->setGroupedValue('DayForecastAvailable', $forecastAvailable);
 
-        $single = trim($this->ReadPropertyString('SecondHost')) === '' && $this->ReadPropertyInteger('SecondOne') === 0;
+        $single = !$this->isFarmMode();
         $valid = $single ? $core !== null : $valid;
 
         $now = time();

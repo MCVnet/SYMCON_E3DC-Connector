@@ -1,4 +1,4 @@
-E3DC Farm 0.9.1 für IP-Symcon 9.0
+E3DC Farm 0.9.2 für IP-Symcon 9.0
 
 Installation
 1. Auf dem Rechner, auf dem der IP-Symcon-Dienst läuft, den Ordner
@@ -254,3 +254,19 @@ IP-Adresse direkt in derselben Instanz hinterlegt sein.
 Brovnings Modul liest keine E3/DC-Solarprognose aus. Als Quelle für
 die Prognose kann eine vorhandene numerische Symcon-Variable in kWh
 ausgewählt werden.
+
+Anlagentyp und externe Systeme ab 0.9.2
+In „Anlage und Geräteerkennung“ die Betriebsart wählen. Automatisch
+verwendet die bestehende Zuordnung eines zweiten Farmgeräts. Bei der
+Ersteinrichtung erkennt die Suche ein Einzelgerät oder ein eindeutig
+zugeordnetes one-Farmpaar. Bei mehreren unabhängigen Treffern die
+gewünschte IP manuell wählen. „Einzelgerät“ blendet die Farmbereiche
+aus. „Farm“ zeigt sie auch dann an, wenn der zweite Teilnehmer noch
+fehlt. Bestehende Variablen werden beim Umgruppieren verschoben,
+damit ihre Objekt-IDs und Archivzuordnungen erhalten bleiben.
+
+Unter „Externe Systeme“ numerische Symcon-Leistungsvariablen mit
+Rolle und Einheit W oder kW hinzufügen. Die Instanz zeigt diese
+Quellen getrennt in Watt an. Sie werden nicht zu den E3/DC-Werten
+addiert. Für die Farm-Summen unterstützt die Instanz weiterhin
+ein Hauptgerät plus ein weiteres zugeordnetes E3/DC-Gerät.

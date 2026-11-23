@@ -7,16 +7,31 @@
     },
     {
       "type": "ExpansionPanel",
-      "caption": "Netzwerk und Verbindung",
+      "caption": "Anlage und Geräteerkennung",
+      "expanded": true,
       "items": [
         {
-          "type": "Label",
-          "caption": "Für die Ersteinrichtung die LAN-Suche starten. Symcon sucht im lokalen Netz nach E3/DC-Geräten mit Modbus Simple Mode. Ein einzelnes Gerät oder ein eindeutig erkanntes one-Farmpaar wird automatisch eingerichtet."
+          "type": "Select",
+          "name": "OperatingMode",
+          "caption": "Betriebsart",
+          "options": [
+            {
+              "caption": "Automatisch",
+              "value": "auto"
+            },
+            {
+              "caption": "Einzelgerät (Standalone)",
+              "value": "standalone"
+            },
+            {
+              "caption": "Farm",
+              "value": "farm"
+            }
+          ]
         },
         {
-          "type": "Button",
-          "caption": "E3/DC-Geräte suchen und einrichten",
-          "onClick": "echo E3DCF_DiscoverLAN($id, $LanNetwork, $Host, $Port, $Unit);"
+          "type": "Label",
+          "caption": "Automatisch verwendet ein Einzelgerät oder eine Farm mit zugeordnetem zweitem Gerät. Die LAN-Suche übernimmt eindeutige Treffer. Bei mehreren unabhängigen Anlagen zuerst das gewünschte Hauptgerät auswählen."
         },
         {
           "type": "ValidationTextBox",
@@ -24,46 +39,58 @@
           "caption": "IP-Adresse des Hauptgeräts oder Farmmasters"
         },
         {
-          "type": "ValidationTextBox",
-          "name": "SecondHost",
-          "caption": "IP-Adresse des zweiten Farmgeräts (optional)"
+          "type": "Button",
+          "caption": "Geräte im LAN suchen",
+          "onClick": "echo E3DCF_DiscoverLAN($id, $LanNetwork, $Host, $Port, $Unit, $OperatingMode);"
         },
         {
-          "type": "ValidationTextBox",
-          "name": "LanNetwork",
-          "caption": "LAN-Suchnetz (optional, z. B. 192.168.178.0/24)"
-        },
-        {
-          "type": "NumberSpinner",
-          "name": "Port",
-          "caption": "Modbus-TCP-Port",
-          "minimum": 1,
-          "maximum": 65535
-        },
-        {
-          "type": "NumberSpinner",
-          "name": "Unit",
-          "caption": "Modbus Unit-ID",
-          "minimum": 0,
-          "maximum": 255
-        },
-        {
-          "type": "NumberSpinner",
-          "name": "Interval",
-          "caption": "Abfrageintervall (Sekunden)",
-          "minimum": 5,
-          "maximum": 3600
+          "type": "ExpansionPanel",
+          "caption": "Erweiterte Netzwerkeinstellungen",
+          "expanded": false,
+          "items": [
+            {
+              "type": "ValidationTextBox",
+              "name": "LanNetwork",
+              "caption": "LAN-Suchnetz (optional, z. B. 192.168.178.0/24)"
+            },
+            {
+              "type": "NumberSpinner",
+              "name": "Port",
+              "caption": "Modbus-TCP-Port",
+              "minimum": 1,
+              "maximum": 65535
+            },
+            {
+              "type": "NumberSpinner",
+              "name": "Unit",
+              "caption": "Modbus Unit-ID",
+              "minimum": 0,
+              "maximum": 255
+            },
+            {
+              "type": "NumberSpinner",
+              "name": "Interval",
+              "caption": "Abfrageintervall (Sekunden)",
+              "minimum": 5,
+              "maximum": 3600
+            }
+          ]
         }
-      ],
-      "expanded": true
+      ]
     },
     {
       "type": "ExpansionPanel",
-      "caption": "Farm und Wallbox",
+      "caption": "Farm und Messpunkte",
+      "expanded": false,
       "items": [
         {
           "type": "Label",
-          "caption": "Bei automatischer Zuordnung werden eindeutige Zähler und Wallbox-Slots verwendet. Bei mehreren Treffern bitte den Index oder Slot wählen."
+          "caption": "Für eine Farm die Adresse des zweiten Geräts hinterlegen. Im Einzelbetrieb bleibt diese Zuordnung gespeichert und wird beim erneuten Wechsel zur Farm wieder verwendet."
+        },
+        {
+          "type": "ValidationTextBox",
+          "name": "SecondHost",
+          "caption": "IP-Adresse des zweiten Farmgeräts (optional)"
         },
         {
           "type": "CheckBox",
@@ -94,6 +121,118 @@
           "maximum": 7
         },
         {
+          "type": "ExpansionPanel",
+          "caption": "Vorhandene zweite Symcon-Instanz",
+          "expanded": false,
+          "items": [
+            {
+              "type": "Label",
+              "caption": "Diese Einstellung gilt nur, solange keine zweite IP-Adresse hinterlegt ist."
+            },
+            {
+              "type": "SelectInstance",
+              "name": "SecondOne",
+              "caption": "Zweite Symcon-Instanz (ältere Einrichtung)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "ExpansionPanel",
+      "caption": "Externe Systeme",
+      "expanded": false,
+      "items": [
+        {
+          "type": "Label",
+          "caption": "Hier zusätzliche Erzeuger, Verbraucher oder Zähler aus vorhandenen Symcon-Variablen zuordnen. Die Messwerte werden in Watt separat angezeigt, damit bereits erfasste Leistungen nicht doppelt gezählt werden."
+        },
+        {
+          "type": "List",
+          "name": "ExternalSystems",
+          "caption": "Leistungsquellen",
+          "rowCount": 5,
+          "add": true,
+          "delete": true,
+          "columns": [
+            {
+              "name": "Name",
+              "caption": "Name",
+              "width": "auto",
+              "add": "",
+              "edit": {
+                "type": "ValidationTextBox"
+              }
+            },
+            {
+              "name": "Source",
+              "caption": "Symcon-Variable",
+              "width": "180px",
+              "add": 0,
+              "edit": {
+                "type": "SelectVariable"
+              }
+            },
+            {
+              "name": "Role",
+              "caption": "Rolle",
+              "width": "130px",
+              "add": "other",
+              "edit": {
+                "type": "Select",
+                "options": [
+                  {
+                    "caption": "Weiteres System",
+                    "value": "other"
+                  },
+                  {
+                    "caption": "Erzeuger",
+                    "value": "generation"
+                  },
+                  {
+                    "caption": "Verbraucher",
+                    "value": "consumption"
+                  },
+                  {
+                    "caption": "Zähler",
+                    "value": "meter"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "Unit",
+              "caption": "Einheit",
+              "width": "80px",
+              "add": "W",
+              "edit": {
+                "type": "Select",
+                "options": [
+                  {
+                    "caption": "W",
+                    "value": "W"
+                  },
+                  {
+                    "caption": "kW",
+                    "value": "kW"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "ExpansionPanel",
+      "caption": "Wallbox und Zubehör",
+      "expanded": false,
+      "items": [
+        {
+          "type": "Label",
+          "caption": "Bei mehreren erkannten Wallboxen den Slot für die Übersicht wählen. Erkannte Komponenten erscheinen unter „Zubehör und Messpunkte“."
+        },
+        {
           "type": "CheckBox",
           "name": "ReadWallbox",
           "caption": "Wallbox auch ohne automatische Erkennung auslesen"
@@ -104,54 +243,22 @@
           "caption": "Wallbox-Slot (−1 = automatisch)",
           "minimum": -1,
           "maximum": 7
-        }
-      ],
-      "expanded": false
-    },
-    {
-      "type": "ExpansionPanel",
-      "caption": "Solar-Tagesertrag über lokales RSCP",
-      "items": [
-        {
-          "type": "Label",
-          "caption": "Liest den gesamten gemessenen Farm-Tagesertrag vom Farmmaster auf Port 5034. Beide RSCP-Passwörter werden in der lokalen Symcon-Konfiguration hinterlegt."
-        },
-        {
-          "type": "CheckBox",
-          "name": "ReadRscpSolar",
-          "caption": "Solar-Tagesertrag vom Farmcontroller auslesen"
-        },
-        {
-          "type": "NumberSpinner",
-          "name": "FarmRscpPort",
-          "caption": "RSCP-Port des Farmcontrollers",
-          "minimum": 1,
-          "maximum": 65535
         },
         {
           "type": "ValidationTextBox",
-          "name": "FarmRscpUser",
-          "caption": "RSCP-Benutzer"
-        },
-        {
-          "type": "PasswordTextBox",
-          "name": "FarmRscpPassword",
-          "caption": "Passwort des lokalen RSCP-Benutzers"
-        },
-        {
-          "type": "PasswordTextBox",
-          "name": "FarmRscpKey",
-          "caption": "RSCP-Verschlüsselungsschlüssel"
+          "name": "AccessoryNames",
+          "caption": "Zubehörnamen als JSON, z. B. {\"Wallbox0\":\"Garage\",\"Zaehler4\":\"Wärmepumpe\"}"
         }
       ]
     },
     {
       "type": "ExpansionPanel",
-      "caption": "Speicher und Prognose",
+      "caption": "Speicher, Tageswerte und Prognose",
+      "expanded": false,
       "items": [
         {
           "type": "Label",
-          "caption": "Ersatzkapazitäten in Wh nur eintragen, wenn das Gerät keine gültige Kapazität meldet. Die Prognosequelle liefert kWh."
+          "caption": "Ersatzkapazitäten nur angeben, wenn das Gerät keine plausible Kapazität liefert. Für die Prognose lässt sich eine vorhandene Symcon-Variable in kWh wählen."
         },
         {
           "type": "NumberSpinner",
@@ -171,19 +278,54 @@
           "type": "SelectVariable",
           "name": "ForecastSource",
           "caption": "Symcon-Variable für Solarprognose heute (kWh)"
+        },
+        {
+          "type": "ExpansionPanel",
+          "caption": "Solar-Tagesertrag über lokales RSCP",
+          "items": [
+            {
+              "type": "Label",
+              "caption": "Liest den gesamten gemessenen Farm-Tagesertrag vom Farmmaster auf Port 5034. Beide RSCP-Passwörter werden in der lokalen Symcon-Konfiguration hinterlegt."
+            },
+            {
+              "type": "CheckBox",
+              "name": "ReadRscpSolar",
+              "caption": "Solar-Tagesertrag vom Farmcontroller auslesen"
+            },
+            {
+              "type": "NumberSpinner",
+              "name": "FarmRscpPort",
+              "caption": "RSCP-Port des Farmcontrollers",
+              "minimum": 1,
+              "maximum": 65535
+            },
+            {
+              "type": "ValidationTextBox",
+              "name": "FarmRscpUser",
+              "caption": "RSCP-Benutzer"
+            },
+            {
+              "type": "PasswordTextBox",
+              "name": "FarmRscpPassword",
+              "caption": "Passwort des lokalen RSCP-Benutzers"
+            },
+            {
+              "type": "PasswordTextBox",
+              "name": "FarmRscpKey",
+              "caption": "RSCP-Verschlüsselungsschlüssel"
+            }
+          ]
         }
-      ],
-      "expanded": false
+      ]
     },
     {
       "type": "ExpansionPanel",
-      "caption": "Zubehör und lokale Steuerung",
+      "caption": "Lokale Steuerung",
       "expanded": false,
       "items": [
         {
-          "type": "ValidationTextBox",
-          "name": "AccessoryNames",
-          "caption": "Zubehörnamen als JSON, z. B. {\"Wallbox0\":\"Garage\",\"Zaehler4\":\"Wärmepumpe\"}"
+          "type": "Label",
+          "caption": "Die Freigaben gelten für die Symcon-Skriptbefehle. Das jeweilige Gerät muss die Modbus-Register unterstützen."
         },
         {
           "type": "CheckBox",
@@ -194,28 +336,8 @@
           "type": "CheckBox",
           "name": "AllowBatteryControl",
           "caption": "Zeitlich begrenzte Batterie-Leistungsvorgaben erlauben"
-        },
-        {
-          "type": "Label",
-          "caption": "Steuerbefehle sind als Symcon-Skriptfunktionen verfügbar. Das Gerät muss die jeweiligen Modbus-Register unterstützen."
         }
       ]
-    },
-    {
-      "type": "ExpansionPanel",
-      "caption": "Bestehende Einrichtung",
-      "items": [
-        {
-          "type": "Label",
-          "caption": "Diese Einstellung gilt nur, solange keine zweite IP-Adresse hinterlegt ist."
-        },
-        {
-          "type": "SelectInstance",
-          "name": "SecondOne",
-          "caption": "Zweite Symcon-Instanz (ältere Einrichtung)"
-        }
-      ],
-      "expanded": false
     }
   ],
   "actions": [
@@ -229,7 +351,7 @@
     {
       "code": 104,
       "icon": "inactive",
-      "caption": "Instanz deaktiviert oder Farmmaster-IP fehlt"
+      "caption": "Instanz deaktiviert oder IP-Adresse des Hauptgeräts fehlt"
     },
     {
       "code": 201,
