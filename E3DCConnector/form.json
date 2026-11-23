@@ -246,7 +246,7 @@
           "type": "List",
           "name": "AccessoryOptions",
           "caption": "Zubehör",
-          "rowCount": 6,
+          "rowCount": 12,
           "add": false,
           "delete": false,
           "columns": [
