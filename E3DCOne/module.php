@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+require_once __DIR__ . '/../libs/FarmRscp.php';
+
 class E3DCOne extends IPSModule
 {
     private const EXTRA_GROUPS = [
@@ -41,6 +43,13 @@ class E3DCOne extends IPSModule
         parent::Create();
         $this->RegisterPropertyBoolean('Active', true);
         $this->RegisterPropertyString('Host', '');
+        $this->RegisterPropertyBoolean('ReadRscpSolar', false);
+        $this->RegisterPropertyInteger('FarmRscpPort', 5034);
+        $this->RegisterPropertyString('FarmRscpUser', 'local.user');
+        $this->RegisterPropertyString('FarmRscpPassword', '');
+        $this->RegisterPropertyString('FarmRscpKey', '');
+        $this->RegisterAttributeInteger('RscpSolarReadAt', 0);
+        $this->RegisterTimer('RscpSolarTimer', 0, 'E3DCF_PollRscpSolar($_IPS["TARGET"]);');
         $this->RegisterPropertyInteger('Port', 502);
         $this->RegisterPropertyInteger('Unit', 1);
         $this->RegisterPropertyInteger('Interval', 15);
@@ -85,6 +94,9 @@ class E3DCOne extends IPSModule
         $this->maintainGroupedVariable('HeatPumpConsumption', 'Wärmepumpe (W)', '', VARIABLETYPE_INTEGER);
         $this->maintainGroupedVariable('FarmHouseConsumption', 'Hausverbrauch ohne Wärmepumpe (W)', '', VARIABLETYPE_INTEGER);
         $this->maintainGroupedVariable('FarmMeterPower', 'Farmzähler – vorzeichenbehaftete Leistung (W)', '', VARIABLETYPE_INTEGER);
+        $this->maintainGroupedVariable('DayPVEstimate', 'Solarproduktion heute – Modbus-Summe (kWh)', '', VARIABLETYPE_FLOAT);
+        $this->maintainGroupedVariable('DayPVSource', 'Datenquelle Solarproduktion', '', VARIABLETYPE_STRING);
+        $this->maintainGroupedVariable('RscpSolarStatus', 'RSCP-Tagesertrag – Status', '', VARIABLETYPE_STRING);
         $this->maintainGroupedVariable('DayBalanceStart', 'Verbrauchs- und Netzbilanz erfasst seit', '~UnixTimestamp', VARIABLETYPE_INTEGER);
         $this->maintainGroupedVariable('FarmConsumptionValid', 'Farm-Verbrauchswerte aktuell', '', VARIABLETYPE_BOOLEAN);
         $this->maintainGroupedVariable('FarmBatterySOC', 'Farm-Batterieladezustand (%)', '', VARIABLETYPE_FLOAT);
@@ -143,6 +155,10 @@ class E3DCOne extends IPSModule
         parent::ApplyChanges();
         $this->maintainGroupedVariables();
         $this->SetTimerInterval('PollTimer', 0);
+        $this->SetTimerInterval('RscpSolarTimer', 0);
+        $this->WriteAttributeInteger('RscpSolarReadAt', 0);
+        $this->setGroupedValue('RscpSolarStatus', 'RSCP-Tagesertrag deaktiviert');
+        $this->publishSolarFallback();
         $this->setGroupedValue('FarmBatteryValid', false);
         $this->setGroupedValue('BatteryEnergyValid', false);
         $this->setGroupedValue('OneEfficiencyValid', false);
@@ -166,6 +182,10 @@ class E3DCOne extends IPSModule
             return;
         }
         $this->SetTimerInterval('PollTimer', max(5, min(3600, $this->ReadPropertyInteger('Interval'))) * 1000);
+        if ($this->ReadPropertyBoolean('ReadRscpSolar')) {
+            $this->setGroupedValue('RscpSolarStatus', 'RSCP-Abfrage ausstehend');
+            $this->SetTimerInterval('RscpSolarTimer', 60000);
+        }
     }
 
     private const GROUPS = [
@@ -186,7 +206,7 @@ class E3DCOne extends IPSModule
                 'WallboxVehicleConnected', 'Wallboxes', 'WallboxDetails'
             ]],
             'Daily' => ['Tageswerte und Prognose', [
-                'DayForecast', 'DayForecastAvailable', 'DayStart', 'DayBalanceStart'
+                'DayForecast', 'DayForecastAvailable', 'DayStart', 'DayBalanceStart', 'DayPVEstimate', 'DayPVSource', 'RscpSolarStatus'
             ]],
             'Master' => ['Farmmaster', [
                 'PV', 'House', 'Grid', 'GridImport', 'GridExport', 'External',
@@ -1003,6 +1023,62 @@ PHP;
         $this->setGroupedValue('FarmPowerValid', true);
     }
 
+    public function PollRscpSolar(): void
+    {
+        if (!$this->ReadPropertyBoolean('Active') || !$this->ReadPropertyBoolean('ReadRscpSolar')) {
+            return;
+        }
+        $lock = 'E3DCOne.RscpSolar.' . $this->InstanceID;
+        if (!IPS_SemaphoreEnter($lock, 0)) {
+            return;
+        }
+        try {
+            $host = trim($this->ReadPropertyString('Host'));
+            $port = $this->ReadPropertyInteger('FarmRscpPort');
+            $user = trim($this->ReadPropertyString('FarmRscpUser'));
+            $password = $this->ReadPropertyString('FarmRscpPassword');
+            $key = $this->ReadPropertyString('FarmRscpKey');
+            if (!filter_var($host, FILTER_VALIDATE_IP) || $port < 1 || $port > 65535
+                || $user === '' || $password === '' || $key === '') {
+                throw new RuntimeException('Farmmaster-IP, RSCP-Port und beide RSCP-Passwörter prüfen.');
+            }
+            $today = date('Y-m-d');
+            // RSCP expects local calendar midnight encoded as UTC, as in the verified probe.
+            $day = (new DateTimeImmutable($today, new DateTimeZone('UTC')))->getTimestamp();
+            $kwh = (new \E3DCConnector\FarmRscp($key))->readDaySolarKwh($host, $port, $user, $password, $day);
+            if ($today !== date('Y-m-d')) {
+                throw new RuntimeException('Tageswechsel während der RSCP-Abfrage. Neuer Versuch im nächsten Intervall.');
+            }
+            $this->WriteAttributeInteger('RscpSolarReadAt', time());
+            $this->setGroupedValue('DayPV', $kwh);
+            $this->setGroupedValue('DayPVSource', 'E3/DC Farmcontroller (RSCP)');
+            $this->setGroupedValue('RscpSolarStatus', 'RSCP-Tagesertrag zuletzt gelesen um ' . date('H:i:s'));
+        } catch (RuntimeException $error) {
+            $this->setGroupedValue('RscpSolarStatus', $error->getMessage());
+            if (!$this->hasCurrentRscpSolar(time(), strtotime('today'))) {
+                $this->publishSolarFallback();
+            }
+        } finally {
+            IPS_SemaphoreLeave($lock);
+        }
+    }
+
+    private function hasCurrentRscpSolar(int $now, int $midnight): bool
+    {
+        $last = $this->ReadAttributeInteger('RscpSolarReadAt');
+        return $this->ReadPropertyBoolean('ReadRscpSolar') && $last >= $midnight && $now - $last <= 180;
+    }
+
+    private function publishSolarFallback(): void
+    {
+        $state = json_decode($this->ReadAttributeString('DailyTotals'), true) ?? [];
+        $estimate = ($state['midnight'] ?? 0) === strtotime('today')
+            ? round($state['totals']['DayPV'] ?? 0.0, 3) : 0.0;
+        $this->setGroupedValue('DayPVEstimate', $estimate);
+        $this->setGroupedValue('DayPV', $estimate);
+        $this->setGroupedValue('DayPVSource', 'Modbus-Summe');
+    }
+
     private function publishDaily(bool $valid): void
     {
         $forecastSource = $this->ReadPropertyInteger('ForecastSource');
@@ -1077,6 +1153,13 @@ PHP;
                 $total += (max(0, $startPower) + max(0, $powers[$ident])) * $seconds / 7200000;
             }
             $state['totals'][$ident] = $total;
+            if ($ident === 'DayPV') {
+                $this->setGroupedValue('DayPVEstimate', round($total, 3));
+                if ($this->hasCurrentRscpSolar($now, $midnight)) {
+                    continue;
+                }
+                $this->setGroupedValue('DayPVSource', 'Modbus-Summe');
+            }
             $this->setGroupedValue($ident, round($total, 3));
         }
         $state['time'] = $now;

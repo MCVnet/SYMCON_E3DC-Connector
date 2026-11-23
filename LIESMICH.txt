@@ -1,4 +1,4 @@
-E3DC Farm 0.8.5 für IP-Symcon 9.0
+E3DC Farm 0.8.6 für IP-Symcon 9.0
 
 Installation
 1. Auf dem Rechner, auf dem der IP-Symcon-Dienst läuft, den Ordner
@@ -192,3 +192,20 @@ Gesamtverbrauchszähler kann dessen Messpunkt im Formular gewählt
 werden. Die Umstellung startet die Tagesbilanz für Haus, Gesamt,
 Netzbezug und Einspeisung neu. Bereits erfasste Einzelzähler bleiben
 erhalten. Ältere Daten und Abfragelücken werden nicht nachberechnet.
+
+Solar-Tagesertrag aus der RSCP-Gerätedatenbank
+Die optionale Einstellung „Solar-Tagesertrag über lokales RSCP“
+verwendet die Farmmaster-IP und standardmäßig Port 5034. Der
+Symcon-Server muss die Farm für RSCP aus demselben Netz erreichen.
+Benutzerpasswort und Verschlüsselungsschlüssel werden in der lokalen
+Symcon-Konfiguration gespeichert. Der Abruf läuft jede Minute.
+Der Farmcontroller liefert den Gesamtertrag in Wh seit Mitternacht.
+Symcon rechnet ihn in kWh um und addiert keine Geräte-Einzelwerte.
+„Datenquelle Solarproduktion“ zeigt die tatsächlich verwendete Quelle.
+Wenn der RSCP-Wert seit mehr als drei Minuten nicht erneuert wurde,
+zeigt „Solarproduktion heute“ wieder die separate Modbus-Summe.
+Die Solarprognose ist von diesem gemessenen Tagesertrag unabhängig.
+
+Die Rijndael-Implementierung stammt aus phpseclib 2.0.48 (MIT).
+Die beiden Dateien wurden für das Modul in einen eigenen PHP-Namespace
+verschoben. Lizenz: libs/Rijndael/LICENSE.

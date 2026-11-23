@@ -110,6 +110,43 @@
     },
     {
       "type": "ExpansionPanel",
+      "caption": "Solar-Tagesertrag über lokales RSCP",
+      "items": [
+        {
+          "type": "Label",
+          "caption": "Liest den gesamten gemessenen Farm-Tagesertrag vom Farmmaster auf Port 5034. Beide RSCP-Passwörter werden in der lokalen Symcon-Konfiguration hinterlegt."
+        },
+        {
+          "type": "CheckBox",
+          "name": "ReadRscpSolar",
+          "caption": "Solar-Tagesertrag vom Farmcontroller auslesen"
+        },
+        {
+          "type": "NumberSpinner",
+          "name": "FarmRscpPort",
+          "caption": "RSCP-Port des Farmcontrollers",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        {
+          "type": "ValidationTextBox",
+          "name": "FarmRscpUser",
+          "caption": "RSCP-Benutzer"
+        },
+        {
+          "type": "PasswordTextBox",
+          "name": "FarmRscpPassword",
+          "caption": "Passwort des lokalen RSCP-Benutzers"
+        },
+        {
+          "type": "PasswordTextBox",
+          "name": "FarmRscpKey",
+          "caption": "RSCP-Verschlüsselungsschlüssel"
+        }
+      ]
+    },
+    {
+      "type": "ExpansionPanel",
       "caption": "Speicher und Prognose",
       "items": [
         {
@@ -159,7 +196,7 @@
     {
       "type": "Button",
       "caption": "Jetzt auslesen",
-      "onClick": "E3DCF_Poll($id);"
+      "onClick": "E3DCF_Poll($id); E3DCF_PollRscpSolar($id);"
     }
   ],
   "status": [
