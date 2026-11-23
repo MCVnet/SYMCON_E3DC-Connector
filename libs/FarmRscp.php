@@ -19,7 +19,18 @@ final class FarmRscp
     private const DAY_REQUEST = 0x06000100;
     private const DAY_RESPONSE = 0x06800100;
     private const DAY_SUM = 0x06800010;
-    private const SOLAR_ENERGY = 0x06800004;
+    private const DAY_ENERGY_TAGS = [
+        0x06800002 => 'DB_BAT_POWER_IN',
+        0x06800003 => 'DB_BAT_POWER_OUT',
+        0x06800004 => 'DB_DC_POWER',
+        0x06800005 => 'DB_GRID_POWER_IN',
+        0x06800006 => 'DB_GRID_POWER_OUT',
+        0x06800007 => 'DB_CONSUMPTION',
+        0x06800008 => 'DB_PM_0_POWER',
+        0x06800009 => 'DB_PM_1_POWER',
+        0x0680000C => 'DB_CONSUMED_PRODUCTION',
+        0x0680000E => 'DB_PRODUCTION_POWER',
+    ];
     private const CONTAINER = 0x0E;
     private const ERROR = 0xFF;
 
@@ -41,7 +52,7 @@ final class FarmRscp
         $this->sendIV = $this->receiveIV = str_repeat("\xFF", self::BLOCK_SIZE);
     }
 
-    public function readDaySolarKwh(string $host, int $port, string $user, string $password, int $day): float
+    public function readDayEnergyWh(string $host, int $port, string $user, string $password, int $day): array
     {
         $address = str_contains($host, ':') ? '[' . $host . ']' : $host;
         $socket = @stream_socket_client('tcp://' . $address . ':' . $port, $code, $message, 2.0);
@@ -63,23 +74,38 @@ final class FarmRscp
                 . self::element(0x06000103, 0x09, pack('P', 86400));
             $answer = $this->exchange($socket, self::element(self::DAY_REQUEST, self::CONTAINER, $period));
             $sum = $answer[self::DAY_RESPONSE][1][self::DAY_SUM] ?? null;
-            $solar = $sum[1][self::SOLAR_ENERGY] ?? null;
-            if ($solar === null || !in_array($solar[0], [0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B], true)) {
-                throw new RuntimeException('RSCP lieferte keinen Solar-Tagesertrag.');
+            if (($sum[0] ?? null) !== self::CONTAINER) {
+                throw new RuntimeException('RSCP lieferte keine Tagessummen.');
             }
-            $format = [0x06 => 'V', 0x07 => 'V', 0x08 => 'P', 0x09 => 'P', 0x0A => 'g', 0x0B => 'e'][$solar[0]];
-            $bytes = in_array($format, ['V', 'g'], true) ? 4 : 8;
-            if (strlen($solar[1]) !== $bytes) {
-                throw new RuntimeException('RSCP lieferte einen ungültigen Solar-Tagesertrag.');
+            $energy = [];
+            foreach (self::DAY_ENERGY_TAGS as $tag => $name) {
+                $element = $sum[1][$tag] ?? null;
+                if ($element === null) {
+                    continue;
+                }
+                $value = self::decodeEnergy($element);
+                if ($value !== null) {
+                    $energy[$name] = $value;
+                }
             }
-            $wh = unpack($format, $solar[1])[1];
-            if (!is_finite((float) $wh) || $wh < 0 || ($solar[0] === 0x06 && $wh >= 0x80000000)) {
-                throw new RuntimeException('RSCP lieferte einen ungültigen Solar-Tagesertrag.');
-            }
-            return $wh / 1000;
+            return $energy;
         } finally {
             fclose($socket);
         }
+    }
+
+    private static function decodeEnergy(array $element): int|float|null
+    {
+        [$type, $data] = $element;
+        $format = [0x06 => 'V', 0x07 => 'V', 0x08 => 'P', 0x09 => 'P', 0x0A => 'g', 0x0B => 'e'][$type] ?? null;
+        if ($format === null || strlen($data) !== (in_array($format, ['V', 'g'], true) ? 4 : 8)) {
+            return null;
+        }
+        $value = unpack($format, $data)[1];
+        if ($type === 0x06 && $value >= 0x80000000) {
+            $value -= 0x100000000;
+        }
+        return is_finite((float) $value) ? $value : null;
     }
 
     private static function element(int $tag, int $type, string $value): string

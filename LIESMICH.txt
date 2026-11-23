@@ -1,4 +1,4 @@
-E3DC Farm 0.8.6 für IP-Symcon 9.0
+E3DC Farm 0.8.7 für IP-Symcon 9.0
 
 Installation
 1. Auf dem Rechner, auf dem der IP-Symcon-Dienst läuft, den Ordner
@@ -209,3 +209,8 @@ Die Solarprognose ist von diesem gemessenen Tagesertrag unabhängig.
 Die Rijndael-Implementierung stammt aus phpseclib 2.0.48 (MIT).
 Die beiden Dateien wurden für das Modul in einen eigenen PHP-Namespace
 verschoben. Lizenz: libs/Rijndael/LICENSE.
+
+Unter „Tageswerte und Prognose“ zeigt „RSCP-Tagessummen (Wh)“
+die vom Farmcontroller gelieferten Energiefelder für den Abgleich
+mit dem E3/DC-Portal. Die Solarproduktion verwendet DB_DC_POWER.
+Dieser Wert kann von der Solarproduktion im Portal abweichen.

@@ -94,6 +94,7 @@ class E3DCOne extends IPSModule
         $this->maintainGroupedVariable('HeatPumpConsumption', 'Wärmepumpe (W)', '', VARIABLETYPE_INTEGER);
         $this->maintainGroupedVariable('FarmHouseConsumption', 'Hausverbrauch ohne Wärmepumpe (W)', '', VARIABLETYPE_INTEGER);
         $this->maintainGroupedVariable('FarmMeterPower', 'Farmzähler – vorzeichenbehaftete Leistung (W)', '', VARIABLETYPE_INTEGER);
+        $this->maintainGroupedVariable('RscpDayEnergy', 'RSCP-Tagessummen (Wh)', '', VARIABLETYPE_STRING);
         $this->maintainGroupedVariable('DayPVEstimate', 'Solarproduktion heute – Modbus-Summe (kWh)', '', VARIABLETYPE_FLOAT);
         $this->maintainGroupedVariable('DayPVSource', 'Datenquelle Solarproduktion', '', VARIABLETYPE_STRING);
         $this->maintainGroupedVariable('RscpSolarStatus', 'RSCP-Tagesertrag – Status', '', VARIABLETYPE_STRING);
@@ -206,7 +207,7 @@ class E3DCOne extends IPSModule
                 'WallboxVehicleConnected', 'Wallboxes', 'WallboxDetails'
             ]],
             'Daily' => ['Tageswerte und Prognose', [
-                'DayForecast', 'DayForecastAvailable', 'DayStart', 'DayBalanceStart', 'DayPVEstimate', 'DayPVSource', 'RscpSolarStatus'
+                'DayForecast', 'DayForecastAvailable', 'DayStart', 'DayBalanceStart', 'DayPVEstimate', 'DayPVSource', 'RscpSolarStatus', 'RscpDayEnergy'
             ]],
             'Master' => ['Farmmaster', [
                 'PV', 'House', 'Grid', 'GridImport', 'GridExport', 'External',
@@ -1045,13 +1046,18 @@ PHP;
             $today = date('Y-m-d');
             // RSCP expects local calendar midnight encoded as UTC, as in the verified probe.
             $day = (new DateTimeImmutable($today, new DateTimeZone('UTC')))->getTimestamp();
-            $kwh = (new \E3DCConnector\FarmRscp($key))->readDaySolarKwh($host, $port, $user, $password, $day);
+            $energy = (new \E3DCConnector\FarmRscp($key))->readDayEnergyWh($host, $port, $user, $password, $day);
             if ($today !== date('Y-m-d')) {
                 throw new RuntimeException('Tageswechsel während der RSCP-Abfrage. Neuer Versuch im nächsten Intervall.');
             }
+            $this->setGroupedValue('RscpDayEnergy', json_encode($energy, JSON_THROW_ON_ERROR | JSON_FORCE_OBJECT));
+            $solarWh = $energy['DB_DC_POWER'] ?? null;
+            if ($solarWh === null || $solarWh < 0) {
+                throw new RuntimeException('RSCP lieferte keinen gültigen Wert für DB_DC_POWER.');
+            }
             $this->WriteAttributeInteger('RscpSolarReadAt', time());
-            $this->setGroupedValue('DayPV', $kwh);
-            $this->setGroupedValue('DayPVSource', 'E3/DC Farmcontroller (RSCP)');
+            $this->setGroupedValue('DayPV', $solarWh / 1000);
+            $this->setGroupedValue('DayPVSource', 'E3/DC Farmcontroller (RSCP: DB_DC_POWER)');
             $this->setGroupedValue('RscpSolarStatus', 'RSCP-Tagesertrag zuletzt gelesen um ' . date('H:i:s'));
         } catch (RuntimeException $error) {
             $this->setGroupedValue('RscpSolarStatus', $error->getMessage());
