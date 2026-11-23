@@ -81,8 +81,18 @@
     },
     {
       "type": "Button",
-      "caption": "E3/DC one im LAN suchen",
-      "onClick": "echo E3DCF_DiscoverLAN($id, $LanNetwork, $Host, $Port, $Unit);"
+      "caption": "E3/DC one suchen und einrichten",
+      "onClick": [
+        "$result = E3DCF_DiscoverLAN($id, $LanNetwork, $Host, $Port, $Unit);",
+        "if (!isset($result[\"second\"])) { echo $result[\"message\"]; return; }",
+        "IPS_SetProperty($id, \"Host\", $result[\"master\"]);",
+        "IPS_SetProperty($id, \"SecondHost\", $result[\"second\"]);",
+        "IPS_SetProperty($id, \"Port\", $result[\"port\"]);",
+        "IPS_SetProperty($id, \"Unit\", $result[\"unit\"]);",
+        "if (!IPS_ApplyChanges($id)) { echo \"Konfiguration konnte nicht übernommen werden.\"; return; }",
+        "E3DCF_Poll($id);",
+        "echo \"IP-Adressen übernommen.\\n\\n\" . $result[\"message\"];"
+      ]
     }
   ],
   "actions": [

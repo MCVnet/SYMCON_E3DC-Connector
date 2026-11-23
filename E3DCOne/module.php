@@ -125,17 +125,18 @@ class E3DCOne extends IPSModule
         $this->SetTimerInterval('PollTimer', max(5, min(3600, $this->ReadPropertyInteger('Interval'))) * 1000);
     }
 
-    public function DiscoverLAN(string $network, string $master, int $port, int $unit): string
+    public function DiscoverLAN(string $network, string $master, int $port, int $unit): array
     {
+        $savedMaster = trim($this->ReadPropertyString('Host'));
         $network = trim($network);
         if ($network === '') {
             $network = trim($master);
         }
         if ($network === '') {
-            $network = trim($this->ReadPropertyString('Host'));
+            $network = $savedMaster;
         }
         if ($network === '') {
-            return 'Bitte im Feld LAN-Suchnetz das eigene Netz eingeben, z. B. 192.168.178.0/24.';
+            return ['message' => 'Bitte im Feld LAN-Suchnetz das eigene Netz eingeben, z. B. 192.168.178.0/24.'];
         }
 
         $address = preg_replace('~\s*/\s*24$~', '', $network);
@@ -143,26 +144,25 @@ class E3DCOne extends IPSModule
             $address = rtrim($address, '.') . '.0';
         }
         if (!filter_var($address, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
-            return 'Das LAN-Suchnetz muss eine IPv4-Adresse oder ein IPv4-/24-Netz sein. Eingegeben: ' . $network;
+            return ['message' => 'Das LAN-Suchnetz muss eine IPv4-Adresse oder ein IPv4-/24-Netz sein. Eingegeben: ' . $network];
         }
         if ($port === 0) {
             $port = $this->ReadPropertyInteger('Port');
             $unit = $this->ReadPropertyInteger('Unit');
         }
         if ($port < 1 || $port > 65535) {
-            return 'Modbus-TCP-Port zwischen 1 und 65535 eingeben.';
+            return ['message' => 'Modbus-TCP-Port zwischen 1 und 65535 eingeben.'];
         }
         if ($unit < 0 || $unit > 255) {
-            return 'Modbus Unit-ID zwischen 0 und 255 eingeben.';
+            return ['message' => 'Modbus Unit-ID zwischen 0 und 255 eingeben.'];
         }
         $prefix = substr($address, 0, strrpos($address, '.') + 1);
         if (!preg_match('/^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)/', $address)) {
-            $savedMaster = trim($this->ReadPropertyString('Host'));
             if ((int) explode('.', $address, 2)[0] < 1 || (int) explode('.', $address, 2)[0] >= 224
                 || !filter_var($savedMaster, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)
                 || !str_starts_with($savedMaster, $prefix)
                 || !$this->verifyMasterForDiscovery($savedMaster, $port, $unit)) {
-                return 'Für dieses Netz zuerst die Farmmaster-IP im selben /24 speichern. Der Farmmaster muss per E3/DC Modbus erreichbar sein.';
+                return ['message' => 'Für dieses Netz zuerst die Farmmaster-IP im selben /24 speichern. Der Farmmaster muss per E3/DC Modbus erreichbar sein.'];
             }
         }
         $matches = [];
@@ -201,7 +201,14 @@ class E3DCOne extends IPSModule
                             $identity = $this->readRegisters($socket, $unit, 2, 40020, 32);
                             $model = $this->decodeText(array_slice($identity, 0, 16));
                             if (strcasecmp($model, 'one') === 0) {
-                                $matches[] = $host . ' — E3/DC one — ' . $this->decodeText(array_slice($identity, 16, 16));
+                                $serial = $this->decodeText(array_slice($identity, 16, 16));
+                                $matches[$host] = ['serial' => $serial, 'farmMeter' => false];
+                                if ($savedMaster === '' && trim($master) === '') {
+                                    usleep(110000);
+                                    $meters = $this->readRegisters($socket, $unit, 3, 40105, 32);
+                                    $matches[$host]['farmMeter'] = in_array(5, array_filter($meters,
+                                        static fn (int $index): bool => $index % 4 === 0, ARRAY_FILTER_USE_KEY), true);
+                                }
                             }
                         } catch (RuntimeException $error) {
                             // The port can be open on devices that do not speak E3/DC Modbus.
@@ -218,10 +225,42 @@ class E3DCOne extends IPSModule
         }
 
         if ($matches === []) {
-            return sprintf('Kein E3/DC one in %s0/24 gefunden (Port %d, Unit-ID %d). Modbus/TCP im E3/DC Simple Mode prüfen.',
-                $prefix, $port, $unit);
+            return ['message' => sprintf('Kein E3/DC one in %s0/24 gefunden (Port %d, Unit-ID %d). Modbus/TCP im E3/DC Simple Mode prüfen.',
+                $prefix, $port, $unit)];
         }
-        return implode("\n", $matches) . "\n\nDie IP-Adressen in die Felder für Farmmaster und zweiten one eintragen.";
+
+        $lines = [];
+        foreach ($matches as $host => $device) {
+            $lines[] = $host . ' — E3/DC one — ' . $device['serial'];
+        }
+        $summary = implode("\n", $lines);
+        if (count($matches) !== 2) {
+            return ['message' => $summary . "\n\nFür die automatische Zuordnung müssen genau zwei one gefunden werden."];
+        }
+        $serials = array_column($matches, 'serial');
+        if (in_array('', $serials, true) || count(array_unique($serials)) !== 2) {
+            return ['message' => $summary . "\n\nDie beiden Geräte melden keine eindeutigen Seriennummern."];
+        }
+        $masterIp = $savedMaster !== '' ? $savedMaster : trim($master);
+        if ($masterIp === '') {
+            $farmMasters = array_keys(array_filter($matches, static fn (array $device): bool => $device['farmMeter']));
+            if (count($farmMasters) === 1) {
+                $masterIp = $farmMasters[0];
+            }
+        }
+        if (!isset($matches[$masterIp])) {
+            return ['message' => $summary . "\n\nDer Farmmaster konnte nicht eindeutig zugeordnet werden. Bitte die Farmmaster-IP hinterlegen."];
+        }
+
+        $secondIp = array_key_first(array_diff_key($matches, [$masterIp => true]));
+        return [
+            'message' => "Farmmaster: $masterIp – " . $matches[$masterIp]['serial']
+                . "\nZweiter one: $secondIp – " . $matches[$secondIp]['serial'],
+            'master' => $masterIp,
+            'second' => $secondIp,
+            'port' => $port,
+            'unit' => $unit
+        ];
     }
 
     private function verifyMasterForDiscovery(string $host, int $port, int $unit): bool

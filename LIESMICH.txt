@@ -1,4 +1,4 @@
-E3DC Farm 0.7.2 für IP-Symcon 9.0
+E3DC Farm 0.7.3 für IP-Symcon 9.0
 
 Installation
 1. Auf dem Rechner, auf dem der IP-Symcon-Dienst läuft, den Ordner
@@ -103,8 +103,8 @@ Die Restenergie wird dann aus Kapazität und Geräte-SOC geschätzt.
 Betrieb beider one aus einer Instanz (ab Version 0.7)
 Die bisherige Farmmaster-Instanz behalten. Darin per LAN-Suche das
 private IPv4-/24-Netz mit dem eingestellten Modbus-Port und der
-Unit-ID aus Symcon durchsuchen. Beide Treffer anhand der Seriennummer
-zuordnen. Die IP-Adressen für Farmmaster und zweiten one eintragen.
+Unit-ID aus Symcon durchsuchen. Der Suchknopf ordnet zwei eindeutige Treffer zu und speichert
+die IP-Adressen für Farmmaster und zweiten one.
 Für beide IP-Adressen gelten derselbe Port und dieselbe Unit-ID.
 Die direkte zweite IP-Adresse hat Vorrang vor der bisherigen
 Verknüpfung mit einer separaten Symcon-Instanz. Hat der zweite one
@@ -118,3 +118,8 @@ zulässig. Fehlermeldungen nennen das jeweils betroffene Feld.
 
 Ein /24 außerhalb der üblichen privaten IPv4-Bereiche ist suchbar,
 wenn der gespeicherte Farmmaster im selben Netz per Modbus antwortet.
+
+Der Suchknopf speichert bei genau zwei unterschiedlichen one die
+Zuordnung automatisch und stößt eine Abfrage an. Als Farmmaster
+gilt die gespeicherte Adresse oder bei der Ersteinrichtung der
+einzige Teilnehmer mit Farmzähler, sofern eindeutig erkennbar.
