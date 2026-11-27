@@ -10,6 +10,12 @@ final class E3DCInstanceUnavailable extends ErrorException
 {
 }
 
+/**
+ * Symcon instance for one RSCP device or an E3/DC farm.
+ *
+ * Farm totals come from the controller endpoint. Optional reads of individual
+ * devices publish diagnostics and storage information without adding live totals twice.
+ */
 class E3DCConnector extends IPSModule
 {
     private const CAPACITY_REFRESH_SECONDS = 300;
@@ -102,6 +108,7 @@ class E3DCConnector extends IPSModule
         $this->maintainGroupedVariables();
     }
 
+    // Look in the active layout first so a mode change can restore objects and their archives.
     private function findModuleCategory(int $instance, string $ident): int|false
     {
         $archive = @IPS_GetObjectIDByIdent('E3DCInactive' . $instance, 0);
@@ -399,7 +406,7 @@ class E3DCConnector extends IPSModule
         'EnergyFlowTile', 'FarmPV', 'FarmGrid', 'FarmConsumption', 'FarmWallboxPower', 'FarmBatteryPower',
         'FarmAutarky', 'FarmBatterySOC', 'FarmBatteryValid', 'FarmBatteryCapacity',
         'FarmHouseConsumption', 'HeatPumpConsumption', 'AdditionalConsumerValid',
-        'PV', 'House', 'Grid', 'Battery', 'SOC', 'WallboxPower',
+        'PV', 'House', 'Grid', 'Battery', 'SOC', 'WallboxPower', 'OneAutarky',
         'RscpCapacity', 'RscpCapacityValid', 'SecondRscpCapacity', 'SecondRscpCapacityValid'
     ];
 
@@ -466,6 +473,8 @@ class E3DCConnector extends IPSModule
         }
     }
 
+    // Lifecycle and setup status exist before a host is configured. All other
+    // variables depend on the active topology and the selected output options.
     private function shouldCreateVariable(string $ident, string $groupIdent): bool
     {
         if (in_array($ident, self::OBSOLETE_MODBUS, true)) {
@@ -620,6 +629,8 @@ class E3DCConnector extends IPSModule
             && $this->ReadPropertyString('MasterPortalPassword') !== '';
     }
 
+    // Move categories without replacing their object IDs. Inactive trees are
+    // retained outside the instance so existing links and logged data remain valid.
     private function updateOperatingLayout(): void
     {
         $farm = $this->isFarmMode();
@@ -678,6 +689,14 @@ class E3DCConnector extends IPSModule
                 }
                 IPS_SetName($category, !$farm && $group === 'Master' ? 'Einzelgerät – Leistung und Verbrauch' : $name);
                 IPS_SetPosition($category, $positions[$group]);
+                if ($group === 'Visualization') {
+                    foreach (['IpsViewEnergyFlowFarm' => $farm, 'IpsViewEnergyFlowSingle' => !$farm] as $identifier => $visible) {
+                        $view = @IPS_GetObjectIDByIdent($identifier, $category);
+                        if ($view !== false && IPS_MediaExists($view)) {
+                            IPS_SetHidden($view, !$visible);
+                        }
+                    }
+                }
             }
         }
         foreach ([
@@ -805,6 +824,7 @@ class E3DCConnector extends IPSModule
         }
     }
 
+    /** Discover local RSCP endpoints and save an unambiguous device assignment. */
     public function DiscoverLAN(string $network, string $master, int $port, int $unit, string $mode = ''): string
     {
         if (!$this->ReadPropertyBoolean('Active')) {
@@ -939,6 +959,8 @@ PHP;
         return $this->classifyDiscoveredDevices($matches, $masterIp, $mode, $port, $unit, $summary);
     }
 
+    // Two responding RSCP devices are not sufficient to infer a farm: prefer
+    // the identified controller, or an assignment that the operator already saved.
     private function classifyDiscoveredDevices(array $matches, string $masterIp, string $mode, int $port, int $unit, string $summary): array
     {
         $farmMasters = array_keys(array_filter($matches, static fn (array $device): bool => $device['farmMeter']));
@@ -1137,6 +1159,8 @@ PHP;
         }
     }
 
+    // A poll is serialized per instance; the fast live sample remains independent
+    // of the slower energy statistics, device detail and accessory scans.
     private function pollMeasurements(bool $refreshCapacity = false): void
     {
         if (!$this->ReadPropertyBoolean('Active')) {
@@ -1243,8 +1267,7 @@ PHP;
 
     private function publishEnergyFlow(array $power, bool $farm, string $status, ?array $meter = null): void
     {
-        $autarky = isset($power['House'], $power['Grid']) && $power['House'] > 0
-            ? 100 * max(0, $power['House'] - max(0, $power['Grid'])) / $power['House'] : null;
+        $autarky = $this->instantAutarky($power);
         $soc = $power['SOC'] ?? null;
         if ($farm) {
             $soc = $power !== [] && $this->getGroupedValue('FarmBatteryValid')
@@ -1261,6 +1284,15 @@ PHP;
         }
     }
 
+    private function instantAutarky(array $power): ?float
+    {
+        if (!isset($power['House'], $power['Grid']) || $power['House'] <= 0) {
+            return null;
+        }
+        return 100 * max(0, $power['House'] - max(0, $power['Grid'])) / $power['House'];
+    }
+
+    /** Create one editable IPSView for the configured topology without overwriting it on reruns. */
     public function CreateIpsViewEnergyFlow(): string
     {
         $lock = 'E3DCConnector.IpsView.' . $this->InstanceID;
@@ -1277,7 +1309,7 @@ PHP;
     private function installIpsViewEnergyFlow(): string
     {
         $parent = $this->findModuleCategory($this->InstanceID, 'E3DCGroupVisualization');
-        if ($parent === false) {
+        if ($parent === false || !filter_var($this->ReadPropertyString('Host'), FILTER_VALIDATE_IP)) {
             return 'Zuerst die Anlage in der Instanz konfigurieren.';
         }
         $farm = $this->isFarmMode();
@@ -1389,10 +1421,12 @@ PHP;
             $this->setGroupedValue('BatteryChargePower', max(0, $live['Battery']));
             $this->setGroupedValue('BatteryDischargePower', max(0, -$live['Battery']));
         }
-        foreach (['Autarky' => 'OneAutarky', 'SelfConsumption' => 'OneSelfConsumption'] as $key => $ident) {
-            if (isset($live[$key])) {
-                $this->setGroupedValue($ident, $live[$key]);
-            }
+        $autarky = $this->instantAutarky($live) ?? $live['Autarky'] ?? null;
+        if ($autarky !== null) {
+            $this->setGroupedValue('OneAutarky', (int) round($autarky));
+        }
+        if (isset($live['SelfConsumption'])) {
+            $this->setGroupedValue('OneSelfConsumption', $live['SelfConsumption']);
         }
         $this->setGroupedValue('OneEfficiencyValid', isset($live['Autarky'], $live['SelfConsumption']));
         if (isset($live['Grid'])) {
@@ -1401,6 +1435,9 @@ PHP;
         }
     }
 
+    // Capacity is measured in Wh at the input and stored as kWh. A confirmed
+    // farm override has priority; a per-unit sum requires two valid capacities.
+    // A capacity alone cannot reconstruct the charge state of individual units.
     private function publishFarmStorage(array $master, array $peer, ?int $farmSoc): void
     {
         $configuredCapacity = $this->ReadPropertyInteger('FarmInstalledCapacityWh');
@@ -1462,8 +1499,9 @@ PHP;
         $valid = isset($live['PV'], $live['Battery'], $live['House'], $live['Grid']);
         $this->setGroupedValue('FarmPowerValid', $valid);
         $this->setGroupedValue('FarmConsumptionValid', isset($live['House']));
-        if ($valid && $live['House'] > 0) {
-            $this->setGroupedValue('FarmAutarky', round(100 * max(0, $live['House'] - max(0, $live['Grid'])) / $live['House'], 1));
+        $autarky = $valid ? $this->instantAutarky($live) : null;
+        if ($autarky !== null) {
+            $this->setGroupedValue('FarmAutarky', round($autarky, 1));
         }
         return $valid;
     }
@@ -1502,6 +1540,8 @@ PHP;
             return [];
         }
         [$user, $password, $key] = $credentials;
+        // Save only capacity data and its acquisition time, never credentials.
+        // ApplyChanges invalidates the cache when connection settings change.
         $cacheKey = ($second ? 'peer:' : 'main:') . $host . ':' . $port;
         $cached = $capacityCache[$cacheKey] ?? [];
         $now = time();
@@ -1783,6 +1823,8 @@ PHP;
         return $controller ? 'Farm' : ($second ? 'Zweit' : ($this->isFarmMode() ? 'Master' : ''));
     }
 
+    // The inventory identifies accessory roles. A type-4 meter is still read
+    // when detail variables are off because it feeds the farm energy-flow view.
     private function collectRscpAccessories(bool $skipIndexZero = false): string
     {
         $farm = $this->isFarmMode();
@@ -1827,6 +1869,7 @@ PHP;
         return implode("\n", $messages);
     }
 
+    /** Read one firmware-dependent RSCP group and publish details only when enabled. */
     public function ReadRscpDetails(bool $secondDevice, string $group, int $index, bool $farmController = false): string
     {
         if ((!$this->isFarmMode() && ($secondDevice || $farmController))
@@ -2046,6 +2089,7 @@ PHP;
         }
     }
 
+    /** Send an explicitly selected, supported setting to the selected individual device. */
     public function SetRscpSetting(bool $secondDevice, string $setting, int $value): string
     {
         [$client, $host, $port, $user, $password] = $this->rscpControlTarget($secondDevice);
@@ -2053,6 +2097,7 @@ PHP;
         return 'RSCP-Befehl vom Gerät bestätigt.';
     }
 
+    /** Write one daily charge or discharge lock period and check the device reply. */
     public function SetRscpIdlePeriod(bool $secondDevice, int $type, int $day, bool $active, string $start, string $end): string
     {
         [$client, $host, $port, $user, $password] = $this->rscpControlTarget($secondDevice);
@@ -2060,6 +2105,7 @@ PHP;
         return 'RSCP-Sperrzeit vom Gerät bestätigt.';
     }
 
+    /** Probe battery indices 0–3 per device; return reported specifications without changing stored capacities. */
     public function CheckBatteryIndices(): string
     {
         $farm = $this->isFarmMode();
@@ -2155,6 +2201,8 @@ PHP;
         return [new \E3DCConnector\FarmRscp($key), $host, $port, $user, $password];
     }
 
+    // The optional portal login is used for farmmaster reads only.
+    // Writes use the configured common RSCP account and require explicit opt-in.
     private function rscpControlTarget(bool $secondDevice): array
     {
         if (!$this->ReadPropertyBoolean('AllowBatteryControl')) {
@@ -2173,12 +2221,14 @@ PHP;
         throw new RuntimeException('Der bisherige Wallbox-Befehl war eine Modbus-Funktion. RSCP-Wallbox-Ladefreigabe ist noch nicht freigegeben.');
     }
 
+    /** Write a battery setpoint in watts. Positive charges, negative discharges, zero requests idle. */
     public function SetBatteryPower(bool $secondDevice, int $watts): void
     {
         [$client, $host, $port, $user, $password] = $this->rscpControlTarget($secondDevice);
         $client->writeBatteryPower($host, $port, $user, $password, $watts);
     }
 
+    /** Return the selected device to the RSCP automatic mode. */
     public function StopBatteryControl(bool $secondDevice): void
     {
         [$client, $host, $port, $user, $password] = $this->rscpControlTarget($secondDevice);
@@ -2204,13 +2254,14 @@ PHP;
         }
         try {
             $host = trim($this->ReadPropertyString('Host'));
-            $port = $this->ReadPropertyInteger($this->isFarmMode() ? 'FarmRscpPort' : 'DeviceRscpPort');
+            $farm = $this->isFarmMode();
+            $port = $this->ReadPropertyInteger($farm ? 'FarmRscpPort' : 'DeviceRscpPort');
             $user = trim($this->ReadPropertyString('FarmRscpUser'));
             $password = $this->ReadPropertyString('FarmRscpPassword');
             $key = $this->ReadPropertyString('FarmRscpKey');
             if (!filter_var($host, FILTER_VALIDATE_IP) || $port < 1 || $port > 65535
                 || $user === '' || $password === '' || $key === '') {
-                throw new RuntimeException('Farmmaster-IP, RSCP-Port und beide RSCP-Passwörter prüfen.');
+                throw new RuntimeException('Geräte-IP, RSCP-Port, Benutzerpasswort und Verschlüsselungsschlüssel prüfen.');
             }
             $today = date('Y-m-d');
             // RSCP expects local calendar midnight encoded as UTC, as in the verified probe.
@@ -2231,7 +2282,8 @@ PHP;
             }
             $this->WriteAttributeInteger('RscpSolarReadAt', time());
             $this->setGroupedValue('DayPV', $solarWh / 1000);
-            $this->setGroupedValue('DayPVSource', 'E3/DC Farmcontroller (RSCP: DB_DC_POWER)');
+            $this->setGroupedValue('DayPVSource', $farm
+                ? 'E3/DC Farmcontroller (RSCP: DB_DC_POWER)' : 'E3/DC Einzelgerät (RSCP: DB_DC_POWER)');
             $this->setGroupedValue('RscpSolarStatus', 'RSCP-Tagesdaten zuletzt gelesen um ' . date('H:i:s'));
         } catch (RuntimeException $error) {
             $this->setGroupedValue('RscpSolarStatus', $error->getMessage());
@@ -2291,6 +2343,8 @@ PHP;
         $this->setGroupedValue('DayPVSource', 'Aus RSCP-Live-Werten integriert');
     }
 
+    // Integrate adjacent samples from W and seconds into kWh. Gaps contribute
+    // no energy; a topology change starts a new accumulation.
     private function publishDaily(bool $valid, ?array $core, bool $farmWallboxCurrent, ?array $meter): void
     {
         $forecastSource = $this->ReadPropertyInteger('ForecastSource');

@@ -53,6 +53,7 @@ final class FarmRscp
         $this->sendIV = $this->receiveIV = str_repeat("\xFF", self::BLOCK_SIZE);
     }
 
+    /** Read the database day sum as raw, named RSCP energy fields in Wh. */
     public function readDayEnergyWh(string $host, int $port, string $user, string $password, int $day): array
     {
         $socket = $this->openSession($host, $port, $user, $password);
@@ -85,6 +86,10 @@ final class FarmRscp
     private const LIVE_TAGS = [1 => 'PV', 2 => 'Battery', 3 => 'House', 4 => 'Grid', 5 => 'External',
         6 => 'Autarky', 7 => 'SelfConsumption', 8 => 'SOC', 31 => 'WallboxPower', 32 => 'WallboxSolar'];
 
+    /**
+     * Read supported live EMS tags. The live-only path returns the flat sample;
+     * the specification path additionally returns installed capacity and read diagnostics.
+     */
     public function readDevice(string $host, int $port, string $user, string $password, bool $includeSpecification = true): array
     {
         $socket = $this->openSession($host, $port, $user, $password);
@@ -471,6 +476,8 @@ final class FarmRscp
         return ['specification' => $specification, 'batteryError' => $batteryError];
     }
 
+    // The EMS system specification uses repeated child containers; parseElements
+    // gives outer occurrences unique keys while preserving their original low 32 bits.
     private static function decodeInstalledCapacity(array $response): array
     {
         if (($response[0] ?? null) !== self::CONTAINER) {

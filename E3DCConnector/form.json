@@ -6,6 +6,12 @@
       "caption": "Instanz aktiv"
     },
     {
+      "type": "Button",
+      "caption": "Dokumentation auf GitHub",
+      "link": true,
+      "onClick": "echo 'https://github.com/MCVnet/SYMCON_E3DC-Connector#readme';"
+    },
+    {
       "type": "ExpansionPanel",
       "caption": "Anlage und RSCP-Verbindung",
       "expanded": true,

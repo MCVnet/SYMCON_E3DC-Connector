@@ -6,6 +6,10 @@ namespace E3DCConnector;
 
 final class IpsViewEnergyFlow
 {
+    /**
+     * Build an IPSView 6.5 media document. Control and page IDs are local to
+     * this view; Symcon variable IDs are resolved by the calling instance.
+     */
     public static function render(int $media, string $name, array $ids, ?string $meterName): string
     {
         $hasMeter = $meterName !== null;

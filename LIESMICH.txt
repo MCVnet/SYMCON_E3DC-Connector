@@ -1,49 +1,8 @@
-E3/DC Connector 0.9.7 für IP-Symcon 9.0
+E3/DC Connector für IP-Symcon
 
-Einrichtung
-- Das GitHub-Repository in der Symcon-Modulverwaltung hinzufügen und
-  eine Instanz „E3/DC Connector“ anlegen. Bestehende Instanzen behalten
-  Modul-ID, Einstellungen und Variablen-IDs.
-- Lokales RSCP aktivieren, Benutzer local.user, Benutzerpasswort und
-  RSCP-Verschlüsselungsschlüssel hinterlegen und übernehmen.
-- „Farm“ wählen, um die LAN-Suche zu starten. Die Suche prüft den
-  Geräteport (üblicherweise 5033) und den Farmcontroller-Port
-  (üblicherweise 5034) unabhängig voneinander. Zwei eindeutig
-  zugeordnete Farmadressen werden automatisch gespeichert.
-- „Jetzt auslesen“ aktualisiert Live-Werte, Tagessummen und Gerätedetails.
-  Der Farmcontroller wird separat abgefragt. Sein Wert wird nicht zu
-  Einzelgeräten addiert.
+Installation, Betriebsarten, Datenquellen, Visualisierung, Steuerfunktionen
+und Fehlerdiagnose stehen in der GitHub-Anleitung:
 
-RSCP-Gerätedetails
-Die Kategorien unter „RSCP-Gerätedetails“ zeigen EMS-Daten, Batteriemodule,
-Wechselrichter, Leistungsmesser, DC/DC-Wandler und Wallbox-Daten.
-Index 0 wird standardmäßig alle fünf Minuten aktualisiert. Im Farmbetrieb
-fragt der Connector den Farmcontroller und das zweite Gerät ab.
-Die Unterstützung hängt von Modell, Firmware und lokalen Leserechten ab.
-Die spezifizierte Kapazität pro Gerät in kWh ist von der nutzbaren
-Kapazität zu unterscheiden. Eine lokale Solarprognose ist nicht belegt.
+https://github.com/MCVnet/SYMCON_E3DC-Connector#readme
 
-Lokale Steuerung
-Die RSCP-Schreibbefehle zuerst in der Instanz freigeben. Unter den Aktionen
-können unterstützte Ladeeinstellungen und Lade-/Entladesperrzeiten
-geschrieben werden. Die Einstellungen gelten für das gewählte Zielgerät.
-Manuelle Ladung und Notstromtest werden nur auf ausdrücklichen Klick mit
-Bestätigung gesendet. Die manuelle Ladung kann Netzbezug verursachen.
-Ein Notstromtest kann die Stromversorgung unterbrechen.
-Die Batterie-Sollleistung lässt sich weiterhin per Skript vorgeben.
-Die alten Modbus-Skriptbefehle für Wallboxmodus und Ladefreigabe
-melden, dass diese beiden RSCP-Schreibfunktionen noch fehlen.
-
-Referenzen
-RSCPGui (rxhan), https://github.com/rxhan/RSCPGui, MIT.
-ioBroker.e3dc-rscp (git-kick), https://github.com/git-kick/ioBroker.e3dc-rscp.
-Die Rijndael-Implementierung stammt aus phpseclib 2.0.48 (MIT).
-
-
-Objektbaum und Zubehörleistung
-Farmbilanz, Tageswerte und Farmcontroller liegen unter „Farmbetrieb“.
-„Einzelgeräte“ enthält Gerätedaten und „Zubehör und Messpunkte“.
-Unter „System und Diagnose“ liegen Verbindungsdiagnose und externe Systeme.
-Erkannte Zähler, Wallboxen und Wechselrichter werden auch oberhalb von
-Index 0 regelmäßig abgefragt. Die Zubehöreinträge zeigen Phasenleistungen
-und ihre Summe in Watt, sofern die Leistung geliefert wird.
+Im Repository ist die Anleitung auch als README.md verfügbar.
