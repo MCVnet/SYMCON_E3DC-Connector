@@ -439,38 +439,38 @@ final class FarmRscp
         $specification = [];
         $batteryError = '';
         try {
-            $request = self::element(0x03040001, 0x05, pack('v', 0))
-                . self::element(0x03000043, 0, '');
-            $answer = $this->exchange($socket, self::element(0x03040000, self::CONTAINER, $request));
-            $battery = $answer[0x03840000] ?? null;
-            $container = ($battery[0] ?? null) === self::CONTAINER ? ($battery[1][0x03800043] ?? null) : null;
-            $capacity = ($container[0] ?? null) === self::CONTAINER ? ($container[1][0x03800125] ?? null) : null;
-            foreach ([$battery, $container, $capacity] as $element) {
-                if (($element[0] ?? null) === self::ERROR && strlen($element[1]) === 4) {
-                    $batteryError = 'RSCP-Batterieabfrage: ' . match (unpack('V', $element[1])[1]) {
-                        1 => 'Abfrage wird nicht unterstützt.',
-                        2 => 'Zugriff verweigert.',
-                        6 => 'Wert nicht verfügbar.',
-                        default => 'Fehlercode ' . unpack('V', $element[1])[1] . '.'
-                    };
-                    break;
-                }
-            }
-            if (($container[0] ?? null) === self::CONTAINER) {
-                foreach ([0x03800125 => 'Kapazität (Wh)', 0x03800126 => 'Spezifizierte Entladeleistung (W)',
-                    0x03800127 => 'Spezifizierte Ladeleistung (W)'] as $tag => $name) {
-                    if (isset($container[1][$tag])) {
-                        $value = self::decodeEnergy($container[1][$tag]);
-                        if ($value !== null) {
-                            $specification[$name] = $value;
-                        }
-                    }
-                }
+            $answer = $this->exchange($socket, self::element(0x01000098, 0, ''));
+            $specification = self::decodeInstalledCapacity($answer[0x01800098] ?? []);
+            if ($specification === []) {
+                $batteryError = 'EMS liefert keine installierte Batteriekapazität.';
             }
         } catch (RuntimeException $error) {
             $batteryError = $error->getMessage();
         }
         return ['specification' => $specification, 'batteryError' => $batteryError];
+    }
+
+    private static function decodeInstalledCapacity(array $response): array
+    {
+        if (($response[0] ?? null) !== self::CONTAINER) {
+            return [];
+        }
+        foreach ($response[1] as $tag => $entry) {
+            if (($tag & 0xFFFFFFFF) !== 0x01000099 || $entry[0] !== self::CONTAINER) {
+                continue;
+            }
+            $fields = $entry[1];
+            $name = $fields[0x0100009B] ?? null;
+            if (($name[0] ?? null) !== 0x0D || rtrim($name[1], "\0") !== 'installedBatteryCapacity') {
+                continue;
+            }
+            $value = $fields[0x0100009C] ?? null;
+            $capacity = $value === null ? null : self::decodeEnergy($value);
+            if ($capacity !== null && $capacity > 0) {
+                return ['Installierte Kapazität (Wh)' => $capacity];
+            }
+        }
+        return [];
     }
 
     private function openSession(string $host, int $port, string $user, string $password)

@@ -58,6 +58,9 @@ class E3DCConnector extends IPSModule
     {
         parent::Create();
         $this->RegisterPropertyBoolean('Active', true);
+        $this->RegisterPropertyBoolean('ExposeDailyValues', false);
+        $this->RegisterPropertyBoolean('ExposeDeviceDetails', false);
+        $this->RegisterPropertyBoolean('ExposeDiagnostics', false);
         $this->RegisterPropertyString('Host', '');
         $this->RegisterPropertyString('OperatingMode', 'auto');
         $this->RegisterPropertyString('ExternalSystems', '[]');
@@ -192,17 +195,17 @@ class E3DCConnector extends IPSModule
         $this->maintainGroupedVariable('FarmBatterySOC', 'Ladezustand gesamt (%)', '', VARIABLETYPE_FLOAT);
         $this->maintainGroupedVariable('FarmBatteryPower', 'Batterieleistung gesamt (W)', '', VARIABLETYPE_INTEGER);
         $this->maintainGroupedVariable('FarmBatteryValid', 'Speicherwerte aktuell', '', VARIABLETYPE_BOOLEAN);
-        $this->maintainGroupedVariable('RscpCapacity', 'Spezifizierte Kapazität (RSCP, kWh)', '', VARIABLETYPE_FLOAT);
+        $this->maintainGroupedVariable('RscpCapacity', 'Installierte Batteriekapazität (kWh)', '', VARIABLETYPE_FLOAT);
         $this->maintainGroupedVariable('RscpCapacityStatus', 'Status der Kapazitätsabfrage', '', VARIABLETYPE_STRING);
-        $this->maintainGroupedVariable('RscpCapacityValid', 'Spezifizierte Kapazität aktuell', '', VARIABLETYPE_BOOLEAN);
-        $this->maintainGroupedVariable('SecondRscpCapacity', 'Spezifizierte Kapazität (RSCP, kWh)', '', VARIABLETYPE_FLOAT);
+        $this->maintainGroupedVariable('RscpCapacityValid', 'Installierte Batteriekapazität aktuell', '', VARIABLETYPE_BOOLEAN);
+        $this->maintainGroupedVariable('SecondRscpCapacity', 'Installierte Batteriekapazität (kWh)', '', VARIABLETYPE_FLOAT);
         $this->maintainGroupedVariable('SecondRscpCapacityStatus', 'Status der Kapazitätsabfrage', '', VARIABLETYPE_STRING);
-        $this->maintainGroupedVariable('SecondRscpCapacityValid', 'Spezifizierte Kapazität aktuell', '', VARIABLETYPE_BOOLEAN);
+        $this->maintainGroupedVariable('SecondRscpCapacityValid', 'Installierte Batteriekapazität aktuell', '', VARIABLETYPE_BOOLEAN);
         $this->maintainGroupedVariable('BatteryCapacity', 'Nutzbare Kapazität (kWh)', '', VARIABLETYPE_FLOAT);
         $this->maintainGroupedVariable('BatteryEnergy', 'Verbleibende Energie (geschätzt, kWh)', '', VARIABLETYPE_FLOAT);
         $this->maintainGroupedVariable('BatteryEnergyAboveReserve', 'Speicherenergie oberhalb der Reserve (kWh)', '', VARIABLETYPE_FLOAT);
         $this->maintainGroupedVariable('BatteryEnergyValid', 'Speicherenergie aktuell', '', VARIABLETYPE_BOOLEAN);
-        $this->maintainGroupedVariable('FarmBatteryCapacity', 'Spezifizierte Kapazität gesamt (RSCP, kWh)', '', VARIABLETYPE_FLOAT);
+        $this->maintainGroupedVariable('FarmBatteryCapacity', 'Installierte Batteriekapazität gesamt (kWh)', '', VARIABLETYPE_FLOAT);
         $this->maintainGroupedVariable('FarmBatteryEnergy', 'Verbleibende Energie gesamt (geschätzt, kWh)', '', VARIABLETYPE_FLOAT);
         $this->maintainGroupedVariable('FarmPV', 'PV-Erzeugung gesamt (W)', '', VARIABLETYPE_INTEGER);
         $this->maintainGroupedVariable('FarmGrid', 'Netzleistung (W)', '', VARIABLETYPE_INTEGER);
@@ -262,6 +265,7 @@ class E3DCConnector extends IPSModule
                 IPS_SetHidden($variable, true);
             }
         }
+        $this->updateOptionalVisibility();
         $this->updateOperatingLayout();
         $this->publishEnergyFlow([], $this->isFarmMode(), $this->ReadPropertyBoolean('Active')
             ? 'Warte auf Messwerte' : 'Instanz deaktiviert');
@@ -305,7 +309,9 @@ class E3DCConnector extends IPSModule
         $this->SetTimerInterval('InitialPollTimer', 250);
         if ($this->ReadPropertyBoolean('ReadRscpSolar')) {
             $this->setGroupedValue('RscpSolarStatus', 'RSCP-Abfrage ausstehend');
-            $this->SetTimerInterval('RscpSolarTimer', 60000);
+            if ($this->ReadPropertyBoolean('ExposeDailyValues')) {
+                $this->SetTimerInterval('RscpSolarTimer', 60000);
+            }
             if ($this->ReadPropertyInteger('RscpDetailInterval') > 0) {
                 $this->SetTimerInterval('RscpDetailsTimer', 1000);
             }
@@ -380,6 +386,77 @@ class E3DCConnector extends IPSModule
         throw new LogicException('Unbekannte Modulvariable: ' . $ident);
     }
 
+    private const VISUALIZATION_VARIABLES = [
+        'EnergyFlowTile', 'FarmPV', 'FarmGrid', 'FarmConsumption', 'FarmWallboxPower', 'FarmBatteryPower',
+        'FarmAutarky', 'FarmBatterySOC', 'FarmBatteryValid', 'FarmBatteryCapacity',
+        'FarmHouseConsumption', 'HeatPumpConsumption', 'AdditionalConsumerValid',
+        'PV', 'House', 'Grid', 'Battery', 'SOC', 'WallboxPower',
+        'RscpCapacity', 'RscpCapacityValid', 'SecondRscpCapacity', 'SecondRscpCapacityValid'
+    ];
+
+    private function optionalVariableEnabled(string $ident, string $group): bool
+    {
+        if (in_array($ident, self::VISUALIZATION_VARIABLES, true)) {
+            return true;
+        }
+        return match ($group) {
+            'Daily' => $this->ReadPropertyBoolean('ExposeDailyValues'),
+            'Diagnostics' => $this->ReadPropertyBoolean('ExposeDiagnostics'),
+            default => $this->ReadPropertyBoolean('ExposeDeviceDetails')
+                || ($this->ReadPropertyBoolean('ExposeDailyValues') && in_array($ident, [
+                    'FarmBatteryChargePower', 'FarmBatteryDischargePower', 'FarmGridImport', 'FarmGridExport',
+                    'BatteryChargePower', 'BatteryDischargePower', 'GridImport', 'GridExport'
+                ], true))
+        };
+    }
+
+    private function updateOptionalVisibility(): void
+    {
+        foreach (self::GROUPS as $group => [, $idents]) {
+            if ($group === 'Daily') {
+                $idents = array_merge($idents, array_keys(self::DAILY));
+            }
+            foreach ($idents as $ident) {
+                if (in_array($ident, self::OBSOLETE_MODBUS, true)
+                    || in_array($ident, ['LanSetupStatus', 'DataStatus', 'OperatingModeStatus'], true)) {
+                    continue;
+                }
+                $variable = $this->findGroupedVariable($ident, $this->InstanceID);
+                if ($variable !== false) {
+                    IPS_SetHidden($variable, !$this->optionalVariableEnabled($ident, $group));
+                }
+            }
+        }
+        $details = $this->ReadPropertyBoolean('ExposeDeviceDetails');
+        $deviceRoot = $this->findModuleCategory($this->InstanceID, 'CategoryRscpDetails');
+        $farmRoot = $this->findModuleCategory($this->InstanceID, 'CategoryFarm');
+        foreach ([
+            $deviceRoot !== false ? @IPS_GetObjectIDByIdent('Device1', $deviceRoot) : false,
+            $deviceRoot !== false ? @IPS_GetObjectIDByIdent('Device2', $deviceRoot) : false,
+            $farmRoot !== false ? @IPS_GetObjectIDByIdent('FarmController', $farmRoot) : false
+        ] as $device) {
+            if ($device === false || !IPS_CategoryExists($device)) {
+                continue;
+            }
+            foreach (IPS_GetChildrenIDs($device) as $item) {
+                if (IPS_CategoryExists($item) && preg_match('/^(INFO|EMS|BAT|DCDC|PM|PVI|WB)[0-9]+$/D', IPS_GetObject($item)['ObjectIdent'])) {
+                    IPS_SetHidden($item, !$details);
+                }
+            }
+        }
+        $accessories = $this->findModuleCategory($this->InstanceID, 'CategoryAccessories');
+        if ($accessories !== false) {
+            foreach (IPS_GetChildrenIDs($accessories) as $category) {
+                foreach (['PowerL1', 'PowerL2', 'PowerL3', 'RscpSnapshot'] as $ident) {
+                    $variable = @IPS_GetObjectIDByIdent($ident, $category);
+                    if ($variable !== false && IPS_VariableExists($variable)) {
+                        IPS_SetHidden($variable, !$details);
+                    }
+                }
+            }
+        }
+    }
+
     private function shouldCreateVariable(string $ident, string $groupIdent): bool
     {
         if (in_array($ident, self::OBSOLETE_MODBUS, true)) {
@@ -392,6 +469,9 @@ class E3DCConnector extends IPSModule
             return false;
         }
         $group = substr($groupIdent, 9);
+        if (!$this->optionalVariableEnabled($ident, $group)) {
+            return false;
+        }
         if ($this->isFarmMode()) {
             return ($this->hasMasterPortalLogin() || !in_array($group, self::STANDALONE_GROUPS, true))
                 && (!in_array($group, ['Second', 'SecondStorage'], true) || $this->hasFarmPeer());
@@ -583,6 +663,10 @@ class E3DCConnector extends IPSModule
             }
             if ($category !== false) {
                 $this->placeLayoutCategory($category, $parent);
+                if (($group === 'Daily' && !$this->ReadPropertyBoolean('ExposeDailyValues'))
+                    || ($group === 'Identity' && !$this->ReadPropertyBoolean('ExposeDeviceDetails'))) {
+                    IPS_SetHidden($category, true);
+                }
                 IPS_SetName($category, !$farm && $group === 'Master' ? 'Einzelgerät – Leistung und Verbrauch' : $name);
                 IPS_SetPosition($category, $positions[$group]);
             }
@@ -1094,7 +1178,10 @@ PHP;
             $this->publishJson('ReadNotes', $notes);
             $valid = isset($live['PV'], $live['Battery'], $live['House'], $live['Grid']);
             $meter = $farmValid ? $this->currentAdditionalMeter(time()) : null;
-            $this->publishDaily($farmValid, $valid ? $this->mergeRscpCore([], $live) : null, isset($farm['WallboxPower']), $meter);
+            $this->publishAdditionalConsumption($farm, $meter);
+            if ($this->ReadPropertyBoolean('ExposeDailyValues')) {
+                $this->publishDaily($farmValid, $valid ? $this->mergeRscpCore([], $live) : null, isset($farm['WallboxPower']), $meter);
+            }
             $complete = $farmMode ? $farmValid : $valid;
             $this->publishEnergyFlow($farmMode ? $farm : $live, $farmMode,
                 $complete ? 'Live-Daten' : 'Live-Daten unvollständig', $meter);
@@ -1123,6 +1210,17 @@ PHP;
         }
     }
 
+    private function publishAdditionalConsumption(array $farm, ?array $meter): void
+    {
+        $this->setGroupedValue('AdditionalConsumerValid', $meter !== null);
+        if ($meter !== null && isset($farm['House'])) {
+            [$index, $power, $source] = $meter;
+            $this->updateAdditionalConsumer(true, $index, $source);
+            $this->setGroupedValue('HeatPumpConsumption', $power);
+            $this->setGroupedValue('FarmHouseConsumption', max(0, $farm['House'] - $power));
+        }
+    }
+
     private function publishEnergyFlow(array $power, bool $farm, string $status, ?array $meter = null): void
     {
         $autarky = isset($power['House'], $power['Grid']) && $power['House'] > 0
@@ -1130,7 +1228,7 @@ PHP;
         $soc = $power['SOC'] ?? null;
         if ($farm) {
             $soc = $power !== [] && $this->getGroupedValue('FarmBatteryValid')
-                ? $this->getGroupedValue('FarmBatterySOC') : null;
+                ? $this->getGroupedValue('FarmBatterySOC') : $soc;
         }
         $tile = $this->findGroupedVariable('EnergyFlowTile', $this->InstanceID);
         if ($tile === false || !$this->shouldCreateVariable('EnergyFlowTile', 'E3DCGroupVisualization')) {
@@ -1190,15 +1288,20 @@ PHP;
 
     private function publishFarmStorage(array $master, array $peer): void
     {
-        if (!$this->hasMasterPortalLogin() || !$this->hasFarmPeer() || !isset($master['SOC'], $peer['SOC'])
-            || !$this->getGroupedValue('RscpCapacityValid') || !$this->getGroupedValue('SecondRscpCapacityValid')) {
+        $capacityAvailable = $this->hasMasterPortalLogin() && $this->hasFarmPeer()
+            && $this->getGroupedValue('RscpCapacityValid') && $this->getGroupedValue('SecondRscpCapacityValid');
+        $this->setCapacityVisibility('FarmBatteryCapacity', $capacityAvailable);
+        if (!$capacityAvailable) {
             return;
         }
         $masterCapacity = $this->getGroupedValue('RscpCapacity');
         $peerCapacity = $this->getGroupedValue('SecondRscpCapacity');
         $capacity = $masterCapacity + $peerCapacity;
-        $energy = ($masterCapacity * $master['SOC'] + $peerCapacity * $peer['SOC']) / 100;
         $this->setGroupedValue('FarmBatteryCapacity', $capacity);
+        if (!isset($master['SOC'], $peer['SOC'])) {
+            return;
+        }
+        $energy = ($masterCapacity * $master['SOC'] + $peerCapacity * $peer['SOC']) / 100;
         $this->setGroupedValue('FarmBatteryEnergy', round($energy, 3));
         $this->setGroupedValue('FarmBatterySOC', round(100 * $energy / $capacity, 2));
         $this->setGroupedValue('FarmBatteryValid', true);
@@ -1261,9 +1364,11 @@ PHP;
     {
         $status = $second ? 'SecondRscpCapacityStatus' : 'RscpCapacityStatus';
         $label = $second ? 'RSCP zweites Farmgerät' : ($this->isFarmMode() ? 'RSCP Farmmaster' : 'RSCP Hauptgerät');
+        $capacityIdent = $second ? 'SecondRscpCapacity' : 'RscpCapacity';
         if (!$this->ReadPropertyBoolean('ReadRscpSolar')) {
             $notes[$label] = 'Lokales RSCP deaktiviert.';
             $this->setGroupedValue($status, $notes[$label]);
+            $this->setCapacityVisibility($capacityIdent, false);
             return [];
         }
         $port = $this->ReadPropertyInteger('DeviceRscpPort');
@@ -1271,6 +1376,7 @@ PHP;
         if ($port < 1 || $port > 65535 || $credentials === null) {
             $notes[$label] = 'RSCP-Port und Zugangsdaten prüfen.';
             $this->setGroupedValue($status, $notes[$label]);
+            $this->setCapacityVisibility($capacityIdent, false);
             return [];
         }
         [$user, $password, $key] = $credentials;
@@ -1279,6 +1385,7 @@ PHP;
         } catch (RuntimeException $error) {
             $notes[$label] = $host . ':' . $port . ' – ' . $error->getMessage();
             $this->setGroupedValue($status, $notes[$label]);
+            $this->setCapacityVisibility($capacityIdent, false);
             return [];
         }
         $live = $data['live'];
@@ -1291,24 +1398,33 @@ PHP;
             }
         }
         $notes[$label] = $host . ':' . $port . ' – ' . $message;
-        $capacity = $data['specification']['Kapazität (Wh)'] ?? null;
+        $capacity = $data['specification']['Installierte Kapazität (Wh)'] ?? null;
         $valid = $capacity !== null && $capacity > 0;
         $this->setGroupedValue($second ? 'SecondRscpCapacityValid' : 'RscpCapacityValid', $valid);
+        $this->setCapacityVisibility($capacityIdent, $valid);
         if ($valid) {
-            $this->setGroupedValue($status, 'Spezifizierte Kapazität für Batterieindex 0 gelesen.');
-            $this->setGroupedValue($second ? 'SecondRscpCapacity' : 'RscpCapacity', $capacity / 1000);
+            $this->setGroupedValue($status, 'Installierte Kapazität über EMS_SYS_SPEC gelesen.');
+            $this->setGroupedValue($capacityIdent, $capacity / 1000);
             if (!$second && isset($live['SOC'])) {
                 $this->setGroupedValue('BatteryEnergy', round($capacity * $live['SOC'] / 100000, 3));
                 $this->setGroupedValue('BatteryEnergyValid', true);
             }
         } else {
             $message = $data['batteryError'] ?: ($capacity === null
-                ? 'Keine spezifizierte Kapazität für Batterieindex 0 geliefert.'
-                : 'Batterieindex 0 meldet keine positive Kapazität.');
+                ? 'EMS liefert keine installierte Batteriekapazität.'
+                : 'EMS meldet keine positive installierte Batteriekapazität.');
             $notes[$label . ' Batterie'] = $message;
             $this->setGroupedValue($status, $message);
         }
         return $live;
+    }
+
+    private function setCapacityVisibility(string $ident, bool $available): void
+    {
+        $variable = $this->findGroupedVariable($ident, $this->InstanceID);
+        if ($variable !== false && IPS_GetObject($variable)['ObjectIsHidden'] === $available) {
+            IPS_SetHidden($variable, !$available);
+        }
     }
 
     private function mergeRscpCore(array $registers, array $live): array
@@ -1502,14 +1618,17 @@ PHP;
             }
             try {
                 $farm = $this->isFarmMode();
-                $this->ReadRscpDeviceOverview(false, $farm);
-                if ($farm && $this->hasMasterPortalLogin()) {
-                    $this->ReadRscpDeviceOverview(false, false);
+                $details = $this->ReadPropertyBoolean('ExposeDeviceDetails');
+                if ($details) {
+                    $this->ReadRscpDeviceOverview(false, $farm);
+                    if ($farm && $this->hasMasterPortalLogin()) {
+                        $this->ReadRscpDeviceOverview(false, false);
+                    }
+                    if ($farm && $this->hasFarmPeer()) {
+                        $this->ReadRscpDeviceOverview(true);
+                    }
                 }
-                if ($farm && $this->hasFarmPeer()) {
-                    $this->ReadRscpDeviceOverview(true);
-                }
-                $this->collectRscpAccessories(true);
+                $this->collectRscpAccessories($details);
             } finally {
                 IPS_SemaphoreLeave($lock);
             }
@@ -1554,7 +1673,8 @@ PHP;
                     };
                     $key = $prefix . $this->accessoryTargetSuffix($second, $controller) . $index;
                     $this->publishRscpAccessory($key, $name . ' ' . $index, [], $second, $role);
-                    if (!$skipIndexZero || $index !== 0) {
+                    if ((!$skipIndexZero || $index !== 0) && ($this->ReadPropertyBoolean('ExposeDeviceDetails')
+                        || ($group === 'PM' && $type === 4))) {
                         try {
                             $this->ReadRscpDetails($second, $group, $index, $controller);
                         } catch (RuntimeException $error) {
@@ -1587,34 +1707,43 @@ PHP;
         if (!isset($names[$group])) {
             throw new RuntimeException('Unbekannte RSCP-Datengruppe.');
         }
-        $root = $farmController ? $this->structureCategory('CategoryFarm', 'Farmbetrieb', $this->InstanceID)
-            : $this->deviceLayoutCategory();
-        $device = $this->structureCategory($farmController ? 'FarmController' : ($secondDevice ? 'Device2' : 'Device1'),
-            $farmController ? 'Farmcontroller' : ($secondDevice ? 'Zweites Farmgerät' : ($this->isFarmMode() ? 'Farmmaster' : 'Hauptgerät')), $root);
-        IPS_SetPosition($device, 60);
-        IPS_SetHidden($device, false);
-        $category = $this->accessoryCategory($device, $group . $index, $names[$group] . (in_array($group, ['INFO', 'EMS'], true) ? '' : ' ' . $index));
+        $category = null;
+        if ($this->ReadPropertyBoolean('ExposeDeviceDetails')) {
+            $root = $farmController ? $this->structureCategory('CategoryFarm', 'Farmbetrieb', $this->InstanceID)
+                : $this->deviceLayoutCategory();
+            $device = $this->structureCategory($farmController ? 'FarmController' : ($secondDevice ? 'Device2' : 'Device1'),
+                $farmController ? 'Farmcontroller' : ($secondDevice ? 'Zweites Farmgerät' : ($this->isFarmMode() ? 'Farmmaster' : 'Hauptgerät')), $root);
+            IPS_SetPosition($device, 60);
+            IPS_SetHidden($device, false);
+            $category = $this->accessoryCategory($device, $group . $index, $names[$group] . (in_array($group, ['INFO', 'EMS'], true) ? '' : ' ' . $index));
+            IPS_SetHidden($category, false);
+        }
         $kind = ['PVI' => 'Wechselrichter', 'PM' => 'Zaehler', 'WB' => 'Wallbox'][$group] ?? null;
         $key = $kind !== null ? $kind . $this->accessoryTargetSuffix($secondDevice, $farmController) . $index : null;
         try {
             $data = $client->readDetails($host, $port, $user, $password, $group, $index);
         } catch (RuntimeException $error) {
             $message = $host . ':' . $port . ' – ' . $error->getMessage();
-            $this->publishAccessoryValue($category, 'ReadStatus', 'Status', $message);
+            if ($category !== null) {
+                $this->publishAccessoryValue($category, 'ReadStatus', 'Status', $message);
+            }
             if ($key !== null) {
                 $this->markAccessoryPowerStale($key);
             }
             throw new RuntimeException($message, 0, $error);
         }
-        $this->publishRscpTree($category, $data);
+
         $hasMeasurements = !$this->containsOnlyRscpErrors($data);
         $errors = $this->describeRscpErrors($data);
         $status = $hasMeasurements ? 'RSCP-Messwerte gelesen.' : 'Keine Messwerte für diese Datengruppe.';
         if ($errors !== []) {
             $status = implode(' ', $errors) . ' ' . $status;
         }
-        $this->publishAccessoryValue($category, 'ReadStatus', 'Status', $status);
-        $this->publishAccessoryValue($category, 'LastRead', 'Letzte RSCP-Abfrage', time(), '~UnixTimestamp');
+        if ($category !== null) {
+            $this->publishRscpTree($category, $data);
+            $this->publishAccessoryValue($category, 'ReadStatus', 'Status', $status);
+            $this->publishAccessoryValue($category, 'LastRead', 'Letzte RSCP-Abfrage', time(), '~UnixTimestamp');
+        }
         if ($group === 'INFO' && !$secondDevice && !$farmController) {
             foreach (['INFO_SERIAL_NUMBER' => 'Serial', 'INFO_SW_RELEASE' => 'Firmware'] as $tag => $ident) {
                 if (is_string($data[$tag] ?? null)) {
@@ -1697,7 +1826,9 @@ PHP;
             $this->publishAccessoryValue($category, 'Role', 'Funktion', $role);
         }
         if ($data !== []) {
-            $this->publishJsonValue($category, 'RscpSnapshot', 'RSCP-Daten', $data);
+            if ($this->ReadPropertyBoolean('ExposeDeviceDetails')) {
+                $this->publishJsonValue($category, 'RscpSnapshot', 'RSCP-Daten', $data);
+            }
             $this->publishAccessoryPower($category, $data);
         }
     }
@@ -1714,9 +1845,11 @@ PHP;
     private function publishAccessoryPower(int $category, array $data): void
     {
         $phases = $this->accessoryPhasePowers($data);
-        foreach ($phases as $index => $power) {
-            $phase = $index + 1;
-            $this->publishAccessoryValue($category, 'PowerL' . $phase, 'Leistung L' . $phase . ' (W)', $power);
+        if ($this->ReadPropertyBoolean('ExposeDeviceDetails')) {
+            foreach ($phases as $index => $power) {
+                $phase = $index + 1;
+                $this->publishAccessoryValue($category, 'PowerL' . $phase, 'Leistung L' . $phase . ' (W)', $power);
+            }
         }
         $this->publishAccessoryValue($category, 'PowerCurrent', 'Leistung aktuell', $phases !== []);
         if ($phases !== []) {
@@ -1878,7 +2011,7 @@ PHP;
 
     private function pollRscpDayData(): void
     {
-        if (!$this->ReadPropertyBoolean('Active') || !$this->ReadPropertyBoolean('ReadRscpSolar')) {
+        if (!$this->ReadPropertyBoolean('ExposeDailyValues') || !$this->ReadPropertyBoolean('Active') || !$this->ReadPropertyBoolean('ReadRscpSolar')) {
             return;
         }
         if (!filter_var($this->ReadPropertyString('Host'), FILTER_VALIDATE_IP)) {
@@ -1932,6 +2065,9 @@ PHP;
 
     private function publishRscpEnergy(array $energy): void
     {
+        if (!$this->ReadPropertyBoolean('ExposeDailyValues')) {
+            return;
+        }
         $daily = $this->findModuleCategory($this->InstanceID, 'E3DCGroupDaily');
         if ($daily === false || !IPS_CategoryExists($daily)) {
             return;
@@ -2036,13 +2172,9 @@ PHP;
         }
         if (!$single && $valid) {
             $consumer = $meter;
-            $this->setGroupedValue('AdditionalConsumerValid', $consumer !== null);
             if ($consumer !== null) {
-                [$index, $power, $source] = $consumer;
+                [, $power] = $consumer;
                 $house = max(0, $this->getGroupedValue('FarmConsumption') - $power);
-                $this->updateAdditionalConsumer(true, $index, $source);
-                $this->setGroupedValue('HeatPumpConsumption', $power);
-                $this->setGroupedValue('FarmHouseConsumption', $house);
                 $powers['DayHeatPump'] = $power;
                 $powers['DayHouse'] = $house;
             }
@@ -2155,8 +2287,10 @@ PHP;
             if (IPS_GetName($id) !== $caption) {
                 IPS_SetName($id, $caption);
             }
-            IPS_SetHidden($id, !$visible && $ident !== 'AdditionalConsumerValid'
-                && ($ident !== 'DayHouse' || $this->isFarmMode()));
+            $dailyDisabled = in_array($ident, ['DayHeatPump', 'DayHouse'], true)
+                && !$this->ReadPropertyBoolean('ExposeDailyValues');
+            IPS_SetHidden($id, $dailyDisabled || (!$visible && $ident !== 'AdditionalConsumerValid'
+                && ($ident !== 'DayHouse' || $this->isFarmMode())));
         }
     }
 

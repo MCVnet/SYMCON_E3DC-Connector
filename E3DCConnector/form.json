@@ -262,6 +262,28 @@
     },
     {
       "type": "ExpansionPanel",
+      "caption": "Zusätzliche Variablen",
+      "expanded": false,
+      "items": [
+        {
+          "type": "CheckBox",
+          "name": "ExposeDailyValues",
+          "caption": "Tageswerte und Solarprognose"
+        },
+        {
+          "type": "CheckBox",
+          "name": "ExposeDeviceDetails",
+          "caption": "Gerätedetails, Phasenwerte und RSCP-Rohdaten"
+        },
+        {
+          "type": "CheckBox",
+          "name": "ExposeDiagnostics",
+          "caption": "Erweiterte Verbindungsdiagnose"
+        }
+      ]
+    },
+    {
+      "type": "ExpansionPanel",
       "caption": "Solarprognose",
       "expanded": false,
       "items": [
