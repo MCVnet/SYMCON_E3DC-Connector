@@ -232,7 +232,7 @@
     },
     {
       "type": "ExpansionPanel",
-      "caption": "Energiefluss-Kachel",
+      "caption": "Visualisierung",
       "expanded": false,
       "items": [
         {
@@ -240,9 +240,18 @@
           "name": "EnergyFlowTheme",
           "caption": "Farbschema",
           "options": [
-            { "caption": "Dunkel", "value": "dark" },
-            { "caption": "Hell", "value": "light" },
-            { "caption": "Automatisch (Geräteeinstellung)", "value": "auto" }
+            {
+              "caption": "Dunkel",
+              "value": "dark"
+            },
+            {
+              "caption": "Hell",
+              "value": "light"
+            },
+            {
+              "caption": "Automatisch (Geräteeinstellung)",
+              "value": "auto"
+            }
           ]
         },
         {
@@ -254,6 +263,22 @@
           "name": "EnergyFlowCss",
           "caption": "Eigenes CSS für die Energiefluss-Kachel",
           "multiline": true
+        },
+        {
+          "type": "ExpansionPanel",
+          "caption": "IPSView",
+          "expanded": false,
+          "items": [
+            {
+              "type": "Label",
+              "caption": "Erstellt unter Visualisierung eine bearbeitbare Energiefluss-View mit nativen IPSView-Elementen. Zum Bearbeiten wird der IPSView Designer benötigt."
+            },
+            {
+              "type": "Button",
+              "caption": "IPSView Energiefluss anlegen",
+              "onClick": "echo E3DCF_CreateIpsViewEnergyFlow($id);"
+            }
+          ]
         }
       ]
     },
@@ -428,33 +453,22 @@
   ],
   "actions": [
     {
-      "type": "Button",
-      "caption": "Jetzt auslesen",
-      "onClick": "E3DCF_RefreshMeasurements($id); E3DCF_PollRscpSolar($id); E3DCF_RefreshRscpDetails($id);"
-    },
-    {
-      "type": "Button",
-      "caption": "RSCP-Verbindungen testen",
-      "onClick": "echo E3DCF_TestRscpConnections($id, false);"
-    },
-    {
-      "type": "Button",
-      "caption": "Batterieindizes prüfen",
-      "onClick": "echo E3DCF_CheckBatteryIndices($id);"
-    },
-    {
-      "type": "ExpansionPanel",
-      "caption": "IPSView",
-      "expanded": false,
+      "type": "RowLayout",
       "items": [
         {
-          "type": "Label",
-          "caption": "Erstellt unter Visualisierung eine bearbeitbare Energiefluss-View mit nativen IPSView-Elementen. Zum Bearbeiten wird der IPSView Designer benötigt."
+          "type": "Button",
+          "caption": "Jetzt auslesen",
+          "onClick": "E3DCF_RefreshMeasurements($id); E3DCF_PollRscpSolar($id); E3DCF_RefreshRscpDetails($id);"
         },
         {
           "type": "Button",
-          "caption": "IPSView Energiefluss anlegen",
-          "onClick": "echo E3DCF_CreateIpsViewEnergyFlow($id);"
+          "caption": "RSCP-Verbindungen testen",
+          "onClick": "echo E3DCF_TestRscpConnections($id, false);"
+        },
+        {
+          "type": "Button",
+          "caption": "Batterieindizes prüfen",
+          "onClick": "echo E3DCF_CheckBatteryIndices($id);"
         }
       ]
     },
