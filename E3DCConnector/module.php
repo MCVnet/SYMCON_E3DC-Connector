@@ -11,6 +11,9 @@ final class E3DCInstanceUnavailable extends ErrorException
 
 class E3DCConnector extends IPSModule
 {
+    private const CAPACITY_REFRESH_SECONDS = 300;
+    private const CAPACITY_RETRY_SECONDS = 60;
+
     private const EXTRA_GROUPS = [
         'DCStrings' => 'PV-Strings',
         'PowerMeters' => 'Leistungsmesser',
@@ -90,6 +93,7 @@ class E3DCConnector extends IPSModule
         $this->RegisterPropertyString('LanNetwork', '');
         $this->RegisterPropertyInteger('ForecastSource', 0);
         $this->RegisterAttributeString('DailyTotals', '{}');
+        $this->RegisterAttributeString('RscpCapacityCache', '{}');
         $this->RegisterTimer('PollTimer', 0, 'if (IPS_InstanceExists($_IPS["TARGET"])) { E3DCF_Poll($_IPS["TARGET"]); }');
         $this->RegisterTimer('RscpDetailsTimer', 0, 'if (IPS_InstanceExists($_IPS["TARGET"])) { E3DCF_PollRscpDetails($_IPS["TARGET"]); }');
         $this->RegisterTimer('InitialPollTimer', 0, 'if (IPS_InstanceExists($_IPS["TARGET"])) { E3DCF_RunInitialPoll($_IPS["TARGET"]); }');
@@ -280,6 +284,7 @@ class E3DCConnector extends IPSModule
         $this->SetTimerInterval('RscpSolarTimer', 0);
         $this->SetTimerInterval('RscpDetailsTimer', 0);
         $this->WriteAttributeInteger('RscpSolarReadAt', 0);
+        $this->WriteAttributeString('RscpCapacityCache', '{}');
         $this->setGroupedValue('RscpSolarStatus', 'RSCP-Tagesertrag deaktiviert');
         $this->publishSolarFallback();
         $this->setGroupedValue('FarmBatteryValid', false);
@@ -1098,6 +1103,11 @@ PHP;
         $this->runTimerPoll($this->pollMeasurements(...));
     }
 
+    public function RefreshMeasurements(): void
+    {
+        $this->runTimerPoll(fn() => $this->pollMeasurements(true));
+    }
+
     private function runTimerPoll(callable $poll): void
     {
         if (!IPS_InstanceExists($this->InstanceID)) {
@@ -1126,7 +1136,7 @@ PHP;
         }
     }
 
-    private function pollMeasurements(): void
+    private function pollMeasurements(bool $refreshCapacity = false): void
     {
         if (!$this->ReadPropertyBoolean('Active')) {
             return;
@@ -1144,16 +1154,19 @@ PHP;
         try {
             $this->publishExternalSystems();
             $notes = [];
-            foreach (['FarmConsumptionValid', 'AdditionalConsumerValid', 'FarmPowerValid', 'FarmBatteryValid',
-                'BatteryEnergyValid', 'SecondOneValid', 'RscpCapacityValid', 'SecondRscpCapacityValid',
-                'SGReadyValid', 'WallboxAvailable', 'OneEfficiencyValid'] as $ident) {
+            $capacityCache = $this->decodeJsonArray($this->ReadAttributeString('RscpCapacityCache')) ?? [];
+            $previousCapacityCache = $capacityCache;
+            foreach (['BatteryEnergyValid', 'RscpCapacityValid', 'SecondRscpCapacityValid',
+                'SGReadyValid', 'WallboxAvailable'] as $ident) {
                 $this->setGroupedValue($ident, false);
             }
             $farmMode = $this->isFarmMode();
             $readMainDevice = !$farmMode || $this->hasMasterPortalLogin();
-            $live = $readMainDevice ? $this->readLocalRscpDevice($host, false, $notes) : [];
+            $live = $readMainDevice ? $this->readLocalRscpDevice($host, false, $notes, $capacityCache, $refreshCapacity) : [];
             if ($live !== []) {
                 $this->publishRscpLive($live);
+            } else {
+                $this->setGroupedValue('OneEfficiencyValid', false);
             }
             $farmValid = false;
             $farm = [];
@@ -1164,16 +1177,19 @@ PHP;
                     $peer = $this->legacyPeerHost();
                 }
                 if (filter_var($peer, FILTER_VALIDATE_IP) && inet_pton($peer) !== inet_pton($host)) {
-                    $second = $this->readLocalRscpDevice($peer, true, $notes);
+                    $second = $this->readLocalRscpDevice($peer, true, $notes, $capacityCache, $refreshCapacity);
                     foreach (['PV' => 'SecondPV', 'Battery' => 'SecondBattery', 'SOC' => 'SecondSOC'] as $field => $ident) {
                         if (isset($second[$field])) {
                             $this->setGroupedValue($ident, $second[$field]);
                         }
                     }
-                    $this->setGroupedValue('SecondOneValid', isset($second['PV'], $second['Battery']));
                 }
+                $this->setGroupedValue('SecondOneValid', isset($second['PV'], $second['Battery']));
                 $farm = $this->readRscpFarmLive($host, $notes);
                 $farmValid = $this->publishRscpFarmLive($farm);
+            }
+            if ($capacityCache !== $previousCapacityCache) {
+                $this->WriteAttributeString('RscpCapacityCache', json_encode($capacityCache, JSON_THROW_ON_ERROR));
             }
             if ($farmMode) {
                 $this->publishFarmStorage($live, $second, $farm['SOC'] ?? null);
@@ -1307,9 +1323,9 @@ PHP;
             $farmSoc = ($this->getGroupedValue('RscpCapacity') * $master['SOC']
                 + $this->getGroupedValue('SecondRscpCapacity') * $peer['SOC']) / $capacity;
         }
+        $this->setGroupedValue('FarmBatteryValid', $farmSoc !== null);
         if ($farmSoc !== null) {
             $this->setGroupedValue('FarmBatterySOC', round($farmSoc, 2));
-            $this->setGroupedValue('FarmBatteryValid', true);
             if ($capacity > 0) {
                 $this->setGroupedValue('FarmBatteryEnergy', round($capacity * $farmSoc / 100, 3));
             }
@@ -1369,7 +1385,7 @@ PHP;
         return $this->rscpCredentials();
     }
 
-    private function readLocalRscpDevice(string $host, bool $second, array &$notes): array
+    private function readLocalRscpDevice(string $host, bool $second, array &$notes, array &$capacityCache, bool $refreshCapacity): array
     {
         $status = $second ? 'SecondRscpCapacityStatus' : 'RscpCapacityStatus';
         $label = $second ? 'RSCP zweites Farmgerät' : ($this->isFarmMode() ? 'RSCP Farmmaster' : 'RSCP Hauptgerät');
@@ -1390,25 +1406,39 @@ PHP;
             return [];
         }
         [$user, $password, $key] = $credentials;
+        $cacheKey = ($second ? 'peer:' : 'main:') . $host . ':' . $port;
+        $cached = $capacityCache[$cacheKey] ?? [];
+        $now = time();
+        $age = $now - ($cached['readAt'] ?? 0);
+        $interval = ($cached['capacity'] ?? null) !== null ? self::CAPACITY_REFRESH_SECONDS : self::CAPACITY_RETRY_SECONDS;
+        $readCapacity = $manualCapacity <= 0 && ($refreshCapacity || $age < 0 || $age >= $interval);
         try {
-            $data = (new \E3DCConnector\FarmRscp($key))->readDevice($host, $port, $user, $password);
+            $response = (new \E3DCConnector\FarmRscp($key))->readDevice($host, $port, $user, $password, $readCapacity);
         } catch (RuntimeException $error) {
             $notes[$label] = $host . ':' . $port . ' – ' . $error->getMessage();
             $this->setGroupedValue($status, $notes[$label]);
             $this->setCapacityVisibility($capacityIdent, false);
             return [];
         }
-        $live = $data['live'];
+        $live = $readCapacity ? $response['live'] : $response;
+        if ($readCapacity) {
+            $cached = [
+                'readAt' => $now,
+                'capacity' => $response['specification']['Installierte Kapazität (Wh)'] ?? null,
+                'error' => $response['batteryError'] ?? ''
+            ];
+            $capacityCache[$cacheKey] = $cached;
+        }
         $missing = array_diff(['PV', 'Battery', 'House', 'Grid'], array_keys($live));
         $message = $live === [] ? 'Keine Live-Messwerte.' : 'Live-Werte: ' . implode(', ', array_keys($live)) . '.';
         if ($missing !== []) {
             $message .= ' Fehlend: ' . implode(', ', $missing) . '.';
-            if (($data['liveError'] ?? '') !== '') {
-                $message .= ' ' . $data['liveError'];
+            if ($readCapacity && ($response['liveError'] ?? '') !== '') {
+                $message .= ' ' . $response['liveError'];
             }
         }
         $notes[$label] = $host . ':' . $port . ' – ' . $message;
-        $capacity = $manualCapacity > 0 ? $manualCapacity : ($data['specification']['Installierte Kapazität (Wh)'] ?? null);
+        $capacity = $manualCapacity > 0 ? $manualCapacity : ($cached['capacity'] ?? null);
         $valid = $capacity !== null && $capacity > 0;
         $this->setGroupedValue($second ? 'SecondRscpCapacityValid' : 'RscpCapacityValid', $valid);
         $this->setCapacityVisibility($capacityIdent, $valid);
@@ -1422,9 +1452,7 @@ PHP;
                 $this->setGroupedValue('BatteryEnergyValid', true);
             }
         } else {
-            $message = $data['batteryError'] ?: ($capacity === null
-                ? 'EMS liefert keine installierte Batteriekapazität.'
-                : 'EMS meldet keine positive installierte Batteriekapazität.');
+            $message = ($cached['error'] ?? '') ?: 'EMS liefert keine installierte Batteriekapazität.';
             $notes[$label . ' Batterie'] = $message . ' Die installierte Kapazität kann in der Instanz hinterlegt werden.';
             $this->setGroupedValue($status, $message);
         }

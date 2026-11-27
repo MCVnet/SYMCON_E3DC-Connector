@@ -330,6 +330,10 @@
       "expanded": false,
       "items": [
         {
+          "type": "Label",
+          "caption": "Die Freigabe erlaubt Änderungen an Batterie-Sollleistung, Ladeeinstellungen und Sperrzeiten. Ein Befehl wird erst durch eine Aktion oder ein Skript gesendet."
+        },
+        {
           "type": "CheckBox",
           "name": "AllowBatteryControl",
           "caption": "Lokale RSCP-Schreibbefehle freigeben"
@@ -426,7 +430,7 @@
     {
       "type": "Button",
       "caption": "Jetzt auslesen",
-      "onClick": "E3DCF_Poll($id); E3DCF_PollRscpSolar($id); E3DCF_RefreshRscpDetails($id);"
+      "onClick": "E3DCF_RefreshMeasurements($id); E3DCF_PollRscpSolar($id); E3DCF_RefreshRscpDetails($id);"
     },
     {
       "type": "Button",
