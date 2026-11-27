@@ -57,31 +57,30 @@
         },
         {
           "type": "Label",
-          "caption": "Für die automatische Suche zuerst die RSCP-Zugangsdaten speichern. Bei Auswahl von „Farm“ startet die Suche automatisch."
+          "caption": "Vor der LAN-Suche die RSCP-Zugangsdaten speichern. Die Auswahl „Farm“ startet die Suche automatisch."
         },
         {
           "type": "ExpansionPanel",
-          "caption": "RSCP-Anmeldung",
-          "expanded": true,
+          "caption": "RSCP-Zugangsdaten",
+          "expanded": false,
           "items": [
             {
-              "type": "RowLayout",
-              "items": [
-                {
-                  "type": "CheckBox",
-                  "name": "ReadRscpSolar",
-                  "caption": "Lokales RSCP verwenden"
-                },
-                {
-                  "type": "ValidationTextBox",
-                  "name": "FarmRscpUser",
-                  "caption": "RSCP-Benutzer"
-                }
-              ]
+              "type": "CheckBox",
+              "name": "ReadRscpSolar",
+              "caption": "Lokales RSCP verwenden"
+            },
+            {
+              "type": "Label",
+              "caption": "Anmeldung für Hauptgerät, Farmcontroller und weitere Farmgeräte"
             },
             {
               "type": "RowLayout",
               "items": [
+                {
+                  "type": "ValidationTextBox",
+                  "name": "FarmRscpUser",
+                  "caption": "RSCP-Benutzer"
+                },
                 {
                   "type": "PasswordTextBox",
                   "name": "FarmRscpPassword",
@@ -93,33 +92,31 @@
                   "caption": "RSCP-Verschlüsselungsschlüssel"
                 }
               ]
-            }
-          ]
-        },
-        {
-          "type": "ExpansionPanel",
-          "caption": "Farmmaster als Einzelgerät",
-          "expanded": false,
-          "items": [
+            },
             {
               "type": "Label",
-              "caption": "Optional im Farmbetrieb. Portal-Konto für lokale RSCP-Abfragen am Einzelgeräte-Port des Farmmasters. Der RSCP-Verschlüsselungsschlüssel wird aus der RSCP-Anmeldung übernommen."
+              "caption": "Farmmaster als Einzelgerät (optional). Die Portal-Zugangsdaten gelten für die lokale Abfrage über den Einzelgeräte-Port."
             },
             {
-              "type": "ValidationTextBox",
-              "name": "MasterPortalUser",
-              "caption": "E3/DC-Portal-E-Mail"
-            },
-            {
-              "type": "PasswordTextBox",
-              "name": "MasterPortalPassword",
-              "caption": "E3/DC-Portalpasswort"
+              "type": "RowLayout",
+              "items": [
+                {
+                  "type": "ValidationTextBox",
+                  "name": "MasterPortalUser",
+                  "caption": "E3/DC-Portal-E-Mail"
+                },
+                {
+                  "type": "PasswordTextBox",
+                  "name": "MasterPortalPassword",
+                  "caption": "E3/DC-Portalpasswort"
+                }
+              ]
             }
           ]
         },
         {
           "type": "ExpansionPanel",
-          "caption": "Ports, Suchnetz und Abfrageintervalle",
+          "caption": "Erweiterte Verbindungseinstellungen",
           "expanded": false,
           "items": [
             {
