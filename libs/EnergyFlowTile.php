@@ -6,7 +6,7 @@ namespace E3DCConnector;
 
 final class EnergyFlowTile
 {
-    public static function render(array $power, ?float $autarky, ?float $soc, ?array $meter, string $status, string $theme): string
+    public static function render(array $power, ?float $autarky, ?float $soc, ?array $meter, string $status, string $theme, string $customCss): string
     {
         $theme = match ($theme) {
             'light', 'auto' => $theme,
@@ -96,8 +96,10 @@ SVG;
         $statusColor = $status === 'Live-Daten' ? 'var(--e3dc-green)' : 'var(--e3dc-orange)';
         $status = $escape($status);
         $statusY = $height - 19;
+        // A closing style tag would terminate the HTML raw-text element.
+        $customCss = str_ireplace('</style', '< /style', $customCss);
         return <<<HTML
-<div style="width:100%">
+<div class="e3dc-flow-wrapper" style="width:100%">
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 $height" width="100%" class="e3dc-flow e3dc-flow-$theme" style="display:block;width:100%;height:auto;font-family:system-ui,sans-serif" role="img" aria-label="Energiefluss der Anlage">
 <style>
 .e3dc-flow {
@@ -128,6 +130,7 @@ SVG;
 .e3dc-flow-pulse { animation: e3dc-flow-forward 1s linear infinite; }
 .e3dc-flow-reverse { animation-direction: reverse; }
 @media (prefers-reduced-motion: reduce) { .e3dc-flow-pulse { display: none; } }
+$customCss
 </style>
 <defs>
   <radialGradient id="e3dcFlowBackdrop" cx="50%" cy="42%" r="70%">

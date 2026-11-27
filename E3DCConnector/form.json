@@ -247,6 +247,16 @@
             { "caption": "Hell", "value": "light" },
             { "caption": "Automatisch (Geräteeinstellung)", "value": "auto" }
           ]
+        },
+        {
+          "type": "Label",
+          "caption": "Eigene CSS-Regeln überschreiben das Farbschema und die Standardgestaltung. Verwende die Klasse .e3dc-flow, um Regeln auf die Kachel zu begrenzen."
+        },
+        {
+          "type": "ValidationTextBox",
+          "name": "EnergyFlowCss",
+          "caption": "Eigenes CSS für die Energiefluss-Kachel",
+          "multiline": true
         }
       ]
     },
