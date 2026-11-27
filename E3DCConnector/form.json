@@ -437,6 +437,11 @@
       "onClick": "echo E3DCF_TestRscpConnections($id, false);"
     },
     {
+      "type": "Button",
+      "caption": "Batterieindizes prüfen",
+      "onClick": "echo E3DCF_CheckBatteryIndices($id);"
+    },
+    {
       "type": "ExpansionPanel",
       "caption": "RSCP-Ladeeinstellungen",
       "expanded": false,

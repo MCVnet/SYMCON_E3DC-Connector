@@ -1936,6 +1936,51 @@ PHP;
         return 'RSCP-Sperrzeit vom Gerät bestätigt.';
     }
 
+    public function CheckBatteryIndices(): string
+    {
+        $farm = $this->isFarmMode();
+        $targets = $farm ? ['Farmmaster (Einzelgerät)' => false] : ['Hauptgerät' => false];
+        if ($farm && $this->hasFarmPeer()) {
+            $targets['Zweites Farmgerät'] = true;
+        }
+        $rows = [];
+        foreach ($targets as $name => $second) {
+            try {
+                [$client, $host, $port, $user, $password] = $this->rscpTarget($second);
+            } catch (RuntimeException $error) {
+                $rows[] = $name . ': ' . $error->getMessage();
+                continue;
+            }
+            $rows[] = $name . ' (' . $host . ':' . $port . ')';
+            for ($index = 0; $index < 4; $index++) {
+                try {
+                    $result = $client->readBatteryIndex($host, $port, $user, $password, $index);
+                    $battery = $result['BAT_DATA'] ?? [];
+                    $reportedIndex = $battery['BAT_INDEX'] ?? null;
+                    $spec = $battery['BAT_SPECIFICATION']['BAT_SPECIFIED_CAPACITY (Wh)'] ?? null;
+                    $values = [];
+                    if ($reportedIndex !== null) {
+                        $values[] = 'Antwortindex ' . $reportedIndex;
+                    }
+                    if (is_numeric($spec) && $spec > 0) {
+                        $values[] = 'Spezifikation ' . number_format($spec / 1000, 3, ',', '.') . ' kWh';
+                    }
+                    foreach (['BAT_DEVICE_NAME' => 'Gerät', 'BAT_DCB_COUNT' => 'Module', 'BAT_USABLE_CAPACITY (Ah)' => 'nutzbar (Ah)'] as $key => $label) {
+                        if (isset($battery[$key])) {
+                            $values[] = $label . ' ' . $battery[$key];
+                        }
+                    }
+                    $errors = $this->describeRscpErrors($result);
+                    $rows[] = 'Index ' . $index . ': ' . (implode(' · ', $values) ?: 'Keine Kapazitäts- oder Moduldaten.')
+                        . ($errors !== [] ? ' ' . implode(' ', $errors) : '');
+                } catch (RuntimeException $error) {
+                    $rows[] = 'Index ' . $index . ': ' . $error->getMessage();
+                }
+            }
+        }
+        return implode("\n", $rows);
+    }
+
     public function TestRscpConnections(bool $includeMainDevice = false): string
     {
         $farmMode = $this->isFarmMode();

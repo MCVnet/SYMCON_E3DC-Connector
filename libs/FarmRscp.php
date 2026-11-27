@@ -434,6 +434,23 @@ final class FarmRscp
         }
     }
 
+    public function readBatteryIndex(string $host, int $port, string $user, string $password, int $index): array
+    {
+        if ($index < 0 || $index > 255) {
+            throw new RuntimeException('Ungültiger Batterieindex.');
+        }
+        $request = self::element(0x03040001, 5, pack('v', $index));
+        foreach ([0x03000043, 0x0300000D, 0x03000026, 0x0300000C] as $tag) {
+            $request .= self::element($tag, 0, '');
+        }
+        $socket = $this->openSession($host, $port, $user, $password);
+        try {
+            return self::describe($this->exchange($socket, self::element(0x03040000, self::CONTAINER, $request)));
+        } finally {
+            fclose($socket);
+        }
+    }
+
     private function readSpecification($socket): array
     {
         $specification = [];
