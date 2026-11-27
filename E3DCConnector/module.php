@@ -67,6 +67,8 @@ class E3DCConnector extends IPSModule
         $this->RegisterPropertyString('FarmRscpUser', 'local.user');
         $this->RegisterPropertyString('FarmRscpPassword', '');
         $this->RegisterPropertyString('FarmRscpKey', '');
+        $this->RegisterPropertyString('MasterPortalUser', '');
+        $this->RegisterPropertyString('MasterPortalPassword', '');
         $this->RegisterAttributeInteger('RscpSolarReadAt', 0);
         $this->RegisterTimer('RscpSolarTimer', 0, 'if (IPS_InstanceExists($_IPS["TARGET"])) { E3DCF_PollRscpSolar($_IPS["TARGET"]); }');
         $this->RegisterPropertyInteger('Interval', 15);
@@ -384,7 +386,7 @@ class E3DCConnector extends IPSModule
         }
         $group = substr($groupIdent, 9);
         if ($this->isFarmMode()) {
-            return !in_array($group, self::STANDALONE_GROUPS, true)
+            return ($this->hasMasterPortalLogin() || !in_array($group, self::STANDALONE_GROUPS, true))
                 && (!in_array($group, ['Second', 'SecondStorage'], true) || $this->hasFarmPeer());
         }
         return !in_array($group, self::FARM_GROUPS, true);
@@ -516,6 +518,12 @@ class E3DCConnector extends IPSModule
         };
     }
 
+    private function hasMasterPortalLogin(): bool
+    {
+        return trim($this->ReadPropertyString('MasterPortalUser')) !== ''
+            && $this->ReadPropertyString('MasterPortalPassword') !== '';
+    }
+
     private function updateOperatingLayout(): void
     {
         $farm = $this->isFarmMode();
@@ -532,8 +540,8 @@ class E3DCConnector extends IPSModule
             IPS_SetPosition($farmRoot, 10);
         }
         $devices = $configured ? $this->deviceLayoutCategory() : false;
-        $main = $devices !== false && !$farm
-            ? $this->structureCategory('Device1', 'Hauptgerät', $devices) : false;
+        $main = $devices !== false && (!$farm || $this->hasMasterPortalLogin())
+            ? $this->structureCategory('Device1', $farm ? 'Farmmaster' : 'Hauptgerät', $devices) : false;
         $peer = $devices !== false && $farm && $this->hasFarmPeer()
             ? $this->structureCategory('Device2', 'Zweites Farmgerät', $devices) : false;
         $system = $this->accessoryCategory($this->InstanceID, 'CategorySystem', 'System und Diagnose');
@@ -625,11 +633,12 @@ class E3DCConnector extends IPSModule
 
     private function accessoryMatchesMode(string $key, bool $farm): bool
     {
-        if (!preg_match('/^(?:Zaehler|Wechselrichter|Wallbox)(Farm|Zweit)?[0-9]+$/D', $key, $parts)) {
+        if (!preg_match('/^(?:Zaehler|Wechselrichter|Wallbox)(Farm|Zweit|Master)?[0-9]+$/D', $key, $parts)) {
             return true;
         }
         return match ($parts[1] ?? '') {
             'Farm' => $farm,
+            'Master' => $farm && $this->hasMasterPortalLogin(),
             'Zweit' => $farm && $this->hasFarmPeer(),
             default => !$farm
         };
@@ -1044,7 +1053,7 @@ PHP;
                 $this->setGroupedValue($ident, false);
             }
             $farmMode = $this->isFarmMode();
-            $readMainDevice = !$farmMode;
+            $readMainDevice = !$farmMode || $this->hasMasterPortalLogin();
             $live = $readMainDevice ? $this->readLocalRscpDevice($host, false, $notes) : [];
             if ($live !== []) {
                 $this->publishRscpLive($live);
@@ -1075,11 +1084,11 @@ PHP;
             if ($valid || $farmValid || $live !== [] || $farm !== [] || $second !== []) {
                 $this->setGroupedValue('LastSuccess', time());
             }
-            if ($valid || $farmValid) {
+            if ($farmMode ? $farmValid : $valid) {
                 $message = $farmValid ? 'Messwerte des Farmcontrollers per RSCP aktualisiert.'
                     : 'Messwerte des Hauptgeräts per RSCP aktualisiert.';
-                if ($readMainDevice && !$valid) {
-                    $message .= ' Hauptgerät: ' . ($notes['RSCP Hauptgerät'] ?? 'Live-Werte unvollständig.');
+                if ($farmMode && $readMainDevice && !$valid) {
+                    $message .= ' Farmmaster: ' . ($notes['RSCP Farmmaster'] ?? 'Live-Werte unvollständig.');
                 }
                 $this->setGroupedValue('DataStatus', $message);
                 $this->SetStatus(102);
@@ -1176,17 +1185,30 @@ PHP;
         return $valid;
     }
 
+    private function deviceReadCredentials(bool $second, bool $controller = false): ?array
+    {
+        if (!$second && !$controller && $this->isFarmMode() && $this->hasMasterPortalLogin()) {
+            $key = $this->ReadPropertyString('FarmRscpKey');
+            if (!$this->ReadPropertyBoolean('ReadRscpSolar') || $key === '') {
+                return null;
+            }
+            return [trim($this->ReadPropertyString('MasterPortalUser')),
+                $this->ReadPropertyString('MasterPortalPassword'), $key];
+        }
+        return $this->rscpCredentials();
+    }
+
     private function readLocalRscpDevice(string $host, bool $second, array &$notes): array
     {
         $status = $second ? 'SecondRscpCapacityStatus' : 'RscpCapacityStatus';
-        $label = $second ? 'RSCP zweites Farmgerät' : 'RSCP Hauptgerät';
+        $label = $second ? 'RSCP zweites Farmgerät' : ($this->isFarmMode() ? 'RSCP Farmmaster' : 'RSCP Hauptgerät');
         if (!$this->ReadPropertyBoolean('ReadRscpSolar')) {
             $notes[$label] = 'Lokales RSCP deaktiviert.';
             $this->setGroupedValue($status, $notes[$label]);
             return [];
         }
         $port = $this->ReadPropertyInteger('DeviceRscpPort');
-        $credentials = $this->rscpCredentials();
+        $credentials = $this->deviceReadCredentials($second);
         if ($port < 1 || $port > 65535 || $credentials === null) {
             $notes[$label] = 'RSCP-Port und Zugangsdaten prüfen.';
             $this->setGroupedValue($status, $notes[$label]);
@@ -1418,6 +1440,9 @@ PHP;
             try {
                 $farm = $this->isFarmMode();
                 $this->ReadRscpDeviceOverview(false, $farm);
+                if ($farm && $this->hasMasterPortalLogin()) {
+                    $this->ReadRscpDeviceOverview(false, false);
+                }
                 if ($farm && $this->hasFarmPeer()) {
                     $this->ReadRscpDeviceOverview(true);
                 }
@@ -1435,16 +1460,24 @@ PHP;
         return $message;
     }
 
+    private function accessoryTargetSuffix(bool $second, bool $controller): string
+    {
+        return $controller ? 'Farm' : ($second ? 'Zweit' : ($this->isFarmMode() ? 'Master' : ''));
+    }
+
     private function collectRscpAccessories(bool $skipIndexZero = false): string
     {
         $farm = $this->isFarmMode();
         $targets = $farm ? [[false, true]] : [[false, false]];
+        if ($farm && $this->hasMasterPortalLogin()) {
+            $targets[] = [false, false];
+        }
         if ($farm && $this->hasFarmPeer()) {
             $targets[] = [true, false];
         }
         $messages = [];
         foreach ($targets as [$second, $controller]) {
-            $label = $controller ? 'Farmcontroller' : ($second ? 'Zweites Farmgerät' : 'Hauptgerät');
+            $label = $controller ? 'Farmcontroller' : ($second ? 'Zweites Farmgerät' : ($farm ? 'Farmmaster' : 'Hauptgerät'));
             try {
                 [$client, $host, $port, $user, $password] = $this->rscpTarget($second, $controller);
                 $result = $client->readAccessoryInventory($host, $port, $user, $password);
@@ -1456,7 +1489,7 @@ PHP;
                         'PVI' => ['Wechselrichter', 'Wechselrichter', 'Wechselrichter'],
                         'WB' => ['Wallbox', 'Wallbox', 'Wallbox']
                     };
-                    $key = $prefix . ($controller ? 'Farm' : ($second ? 'Zweit' : '')) . $index;
+                    $key = $prefix . $this->accessoryTargetSuffix($second, $controller) . $index;
                     $this->publishRscpAccessory($key, $name . ' ' . $index, [], $second, $role);
                     if (!$skipIndexZero || $index !== 0) {
                         try {
@@ -1477,7 +1510,8 @@ PHP;
 
     public function ReadRscpDetails(bool $secondDevice, string $group, int $index, bool $farmController = false): string
     {
-        if ($this->isFarmMode() !== ($secondDevice || $farmController)
+        if ((!$this->isFarmMode() && ($secondDevice || $farmController))
+            || ($this->isFarmMode() && !$secondDevice && !$farmController && !$this->hasMasterPortalLogin())
             || ($secondDevice && !$this->hasFarmPeer())) {
             throw new RuntimeException('Das gewählte RSCP-Ziel ist in dieser Betriebsart nicht eingerichtet.');
         }
@@ -1490,12 +1524,12 @@ PHP;
         $root = $farmController ? $this->structureCategory('CategoryFarm', 'Farmbetrieb', $this->InstanceID)
             : $this->deviceLayoutCategory();
         $device = $this->structureCategory($farmController ? 'FarmController' : ($secondDevice ? 'Device2' : 'Device1'),
-            $farmController ? 'Farmcontroller' : ($secondDevice ? 'Zweites Farmgerät' : 'Hauptgerät'), $root);
+            $farmController ? 'Farmcontroller' : ($secondDevice ? 'Zweites Farmgerät' : ($this->isFarmMode() ? 'Farmmaster' : 'Hauptgerät')), $root);
         IPS_SetPosition($device, 60);
         IPS_SetHidden($device, false);
         $category = $this->accessoryCategory($device, $group . $index, $names[$group] . (in_array($group, ['INFO', 'EMS'], true) ? '' : ' ' . $index));
         $kind = ['PVI' => 'Wechselrichter', 'PM' => 'Zaehler', 'WB' => 'Wallbox'][$group] ?? null;
-        $key = $kind !== null ? $kind . ($farmController ? 'Farm' : ($secondDevice ? 'Zweit' : '')) . $index : null;
+        $key = $kind !== null ? $kind . $this->accessoryTargetSuffix($secondDevice, $farmController) . $index : null;
         try {
             $data = $client->readDetails($host, $port, $user, $password, $group, $index);
         } catch (RuntimeException $error) {
@@ -1587,7 +1621,8 @@ PHP;
             $this->deviceLayoutCategory());
         IPS_SetPosition($root, 70);
         $settings = $this->accessorySettings() ?? [];
-        $default = $label . ($secondDevice ? ' – zweites Farmgerät' : '');
+        $default = $label . ($secondDevice ? ' – zweites Farmgerät'
+            : (preg_match('/Master[0-9]+$/D', $key) ? ' – Farmmaster' : ''));
         $category = $this->accessoryCategory($root, $key,
             $this->accessoryName($key, $settings, $this->accessoryLegacyNames() ?? [], $default));
         IPS_SetHidden($category, !($settings[$key]['Visible'] ?? true));
@@ -1694,8 +1729,8 @@ PHP;
     {
         $farmMode = $this->isFarmMode();
         $targets = [];
-        if (!$farmMode || $includeMainDevice) {
-            $targets['Hauptgerät'] = [false, false];
+        if (!$farmMode || $includeMainDevice || $this->hasMasterPortalLogin()) {
+            $targets[$farmMode ? 'Farmmaster (Einzelgerät)' : 'Hauptgerät'] = [false, false];
         }
         if ($farmMode) {
             $targets['Farmcontroller'] = [false, true];
@@ -1719,12 +1754,12 @@ PHP;
         return implode("\n", $results);
     }
 
-    private function rscpTarget(bool $secondDevice, bool $farmController = false): array
+    private function rscpTarget(bool $secondDevice, bool $farmController = false, bool $useReadCredentials = true): array
     {
         if ($farmController && ($secondDevice || !$this->isFarmMode())) {
             throw new RuntimeException('Den Farmcontroller nur im Farmbetrieb als eigenes Ziel wählen.');
         }
-        $credentials = $this->rscpCredentials();
+        $credentials = $useReadCredentials ? $this->deviceReadCredentials($secondDevice, $farmController) : $this->rscpCredentials();
         if (!$this->ReadPropertyBoolean('Active') || $credentials === null) {
             throw new RuntimeException('Instanz und lokales RSCP aktivieren und Zugangsdaten hinterlegen.');
         }
@@ -1745,7 +1780,7 @@ PHP;
         if (!$this->ReadPropertyBoolean('AllowBatteryControl')) {
             throw new RuntimeException('RSCP-Steuerung in der Instanz freigeben.');
         }
-        return $this->rscpTarget($secondDevice);
+        return $this->rscpTarget($secondDevice, false, false);
     }
 
     public function SetWallboxMode(int $slot, bool $solar): void

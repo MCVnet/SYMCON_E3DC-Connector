@@ -98,6 +98,27 @@
         },
         {
           "type": "ExpansionPanel",
+          "caption": "Farmmaster als Einzelgerät",
+          "expanded": false,
+          "items": [
+            {
+              "type": "Label",
+              "caption": "Optional im Farmbetrieb. Portal-Konto für lokale RSCP-Abfragen am Einzelgeräte-Port des Farmmasters. Der RSCP-Verschlüsselungsschlüssel wird aus der RSCP-Anmeldung übernommen."
+            },
+            {
+              "type": "ValidationTextBox",
+              "name": "MasterPortalUser",
+              "caption": "E3/DC-Portal-E-Mail"
+            },
+            {
+              "type": "PasswordTextBox",
+              "name": "MasterPortalPassword",
+              "caption": "E3/DC-Portalpasswort"
+            }
+          ]
+        },
+        {
+          "type": "ExpansionPanel",
           "caption": "Ports, Suchnetz und Abfrageintervalle",
           "expanded": false,
           "items": [
