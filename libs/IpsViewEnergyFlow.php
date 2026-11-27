@@ -24,9 +24,9 @@ final class IpsViewEnergyFlow
                 'ItemID' => $index + 1, 'ItemName' => $label, 'ItemIdx' => $index, 'ItemLayer' => 2, 'ItemVisibility' => 0
             ];
         };
-        $text = static function (string $label, int $x, int $y, int $width, int $height, int $size, array $color, int $id = 0, string $suffix = '', int $digits = 0) use ($control): void {
+        $text = static function (string $label, int $x, int $y, int $width, int $height, int $size, array $color, int $id = 0, string $suffix = '', int $digits = 0, int $alignment = 4) use ($control): void {
             $control($id > 0 ? 'IPSVarLabel' : 'IPSTxtLabel', $label, $x, $y, $width, $height, [
-                'ID' => $id, 'Text1' => $id > 0 ? '' : $label, 'TextAlign' => 4,
+                'ID' => $id, 'Text1' => $id > 0 ? '' : $label, 'TextAlign' => $alignment,
                 'Font' => ['FontFamily' => '', 'Size' => $size], 'ForeColor1' => $color,
                 'Suffix' => $suffix, 'Digits' => $digits, 'Widget' => ['grididx' => '-1']
             ]);
@@ -40,7 +40,7 @@ final class IpsViewEnergyFlow
             $text($label, $x + 12, $y + 10, 172, 26, 16, $accent);
             $text($id > 0 ? $label . ' Livewert' : '–', $x + 12, $y + 37, 172, 42, 27, $ink, $id, $unit);
         };
-        $flow = static function (string $label, int $id, int $x, int $y, int $width, int $height, int $direction, array $accent) use ($control): void {
+        $flow = static function (string $label, int $id, int $x, int $y, int $width, int $height, int $direction, array $accent, bool $endArrow = true) use ($control): void {
             if ($id <= 0) {
                 return;
             }
@@ -49,7 +49,7 @@ final class IpsViewEnergyFlow
                 'ID' => $id, 'ItemLayer' => 1,
                 'Widget' => [
                     'grididx' => '-1', 'flowdirection' => (string) $direction,
-                    'linewidth' => '3', 'linewidthdynamic' => 'false', 'linearrow' => 'true',
+                    'linewidth' => '3', 'linewidthdynamic' => 'false', 'linearrow' => $endArrow ? 'true' : 'false',
                     'linearrowsize' => '5', 'linearrowwidth' => '9', 'linearrowheight' => '9',
                     'flowlimitneutral' => '0', 'flowlimitnegative' => '-5000', 'flowlimitpositive' => '5000',
                     'linecolorneutral' => '182;196;207', 'linecolorpositive' => $rgb, 'linecolornegative' => $rgb,
@@ -72,19 +72,21 @@ final class IpsViewEnergyFlow
             'BackColor1' => self::color(248, 252, 250), 'BorderColor1' => $green, 'BW' => 5,
             'ItemLayer' => 1
         ]);
-        $text($ids['Autarky'] > 0 ? 'Autarkie Livewert' : '–', 410, 265, 140, 52, 33, $ink, $ids['Autarky'], ' %');
-        $text('Autarkie', 410, 320, 140, 25, 16, $muted);
+        $text($ids['Autarky'] > 0 ? 'Autarkie Livewert' : '–', 410, 265, 140, 52, 33, $ink, $ids['Autarky'], ' %', 0, 5);
+        $text('Autarkie', 410, 320, 140, 25, 16, $muted, 0, '', 0, 5);
 
         $flow('PV', $ids['PV'], 471, 188, 18, 34, 22, $green);
-        $flow('Netz', $ids['Grid'], 240, 296, 157, 18, 12, $blue);
-        $flow('Batterie', $ids['Battery'], 563, 296, 157, 18, 12, $purple);
+        $flow('Netz', $ids['Grid'], 240, 296, 157, 18, 2, $blue);
+        $flow('Batterie', $ids['Battery'], 563, 296, 157, 18, 2, $purple);
         $flow('Verbrauch', $ids['Consumption'], 471, 388, 18, 80, 22, $orange);
-        $flow('Wallbox', $ids['Wallbox'], 133, 376, 347, 92, 31, $blue);
+        $flow('Wallbox quer', $ids['Wallbox'], 142, 369, 303, 18, 12, $blue, false);
+        $flow('Wallbox', $ids['Wallbox'], 133, 378, 18, 90, 22, $blue);
         if ($hasMeter) {
             $card('Hausverbrauch', 382, 660, $ids['House'], $orange, self::color(252, 241, 226));
             $card($meterName, 720, 660, $ids['Meter'], $orange, self::color(252, 241, 226));
             $flow('Hausverbrauch', $ids['House'], 471, 562, 18, 98, 22, $orange);
-            $flow($meterName, $ids['Meter'], 480, 570, 338, 90, 13, $orange);
+            $flow($meterName . ' quer', $ids['Meter'], 480, 601, 338, 18, 2, $orange, false);
+            $flow($meterName, $ids['Meter'], 809, 610, 18, 50, 22, $orange);
         }
 
         $used = [];
@@ -97,7 +99,7 @@ final class IpsViewEnergyFlow
             'Name' => $name, 'ID' => $media, 'Client' => 'Universal', 'Hardware' => '-', 'Orientation' => 'Landscape',
             'Width' => 960, 'Height' => $hasMeter ? 790 : 600, 'HardwareWidth' => 960,
             'HardwareHeight' => $hasMeter ? 790 : 600, 'FullScreen' => false,
-            'MajorDesignerVersion' => 6, 'MinorDesignerVersion' => 5, 'BuildDesignerVersion' => 0, 'ViewVersion' => 1,
+            'MajorDesignerVersion' => 6, 'MinorDesignerVersion' => 5, 'BuildDesignerVersion' => 0, 'ViewVersion' => 2,
             'CurrentPageName' => 'Energiefluss', 'CurrentCustomName' => '', 'ItemID' => count($controls) + 1,
             'PageHistory' => [], 'CustomHistory' => [], 'ZoomLevel' => 100, 'LruIDs' => [], 'GroupIDs' => (object) [],
             'DesignerPanelTabIdxs' => [0, 0, 0, 0, 0],

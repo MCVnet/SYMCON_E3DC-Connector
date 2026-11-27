@@ -1334,7 +1334,9 @@ PHP;
         $view = is_string($decoded) ? $this->decodeJsonArray($decoded) : null;
         $page = $view['Pages'][0] ?? [];
         return ($view['ViewVersion'] ?? 0) === 1 && count($view['Pages'] ?? []) === 1
-            && ($page['PageName'] ?? '') === 'Energiefluss' && !isset($page['PopupWidth']);
+            && ($page['PageName'] ?? '') === 'Energiefluss'
+            && ($page['Controls'][0]['ItemName'] ?? '') === 'Energiefluss'
+            && in_array('Wallbox Flusslinie', array_column($page['Controls'], 'ItemName'), true);
     }
 
     private function isEmptyIpsView(int $media): bool
