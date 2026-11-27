@@ -284,6 +284,29 @@
     },
     {
       "type": "ExpansionPanel",
+      "caption": "Installierte Batteriekapazität",
+      "expanded": false,
+      "items": [
+        {
+          "type": "Label",
+          "caption": "0 verwendet den gemeldeten EMS-Wert, sofern er plausibel ist. Bei falscher Geräteangabe die bestätigte maximale Kapazität je Gerät in Wh eintragen."
+        },
+        {
+          "type": "NumberSpinner",
+          "name": "MasterInstalledCapacityWh",
+          "caption": "Hauptgerät oder Farmmaster (Wh)",
+          "minimum": 0
+        },
+        {
+          "type": "NumberSpinner",
+          "name": "PeerInstalledCapacityWh",
+          "caption": "Zweites Farmgerät (Wh)",
+          "minimum": 0
+        }
+      ]
+    },
+    {
+      "type": "ExpansionPanel",
       "caption": "Solarprognose",
       "expanded": false,
       "items": [

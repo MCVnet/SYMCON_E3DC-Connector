@@ -441,8 +441,12 @@ final class FarmRscp
         try {
             $answer = $this->exchange($socket, self::element(0x01000097, 0, ''));
             $specification = self::decodeInstalledCapacity($answer[0x01800098] ?? []);
-            if ($specification === []) {
+            $capacity = $specification['Installierte Kapazität (Wh)'] ?? null;
+            if ($capacity === null) {
                 $batteryError = 'EMS liefert keine installierte Batteriekapazität.';
+            } elseif ($capacity < 100) {
+                $batteryError = 'EMS meldet ' . $capacity . ' Wh. Der Wert ist für einen Hausspeicher unplausibel.';
+                $specification = [];
             }
         } catch (RuntimeException $error) {
             $batteryError = $error->getMessage();

@@ -61,6 +61,8 @@ class E3DCConnector extends IPSModule
         $this->RegisterPropertyBoolean('ExposeDailyValues', false);
         $this->RegisterPropertyBoolean('ExposeDeviceDetails', false);
         $this->RegisterPropertyBoolean('ExposeDiagnostics', false);
+        $this->RegisterPropertyInteger('MasterInstalledCapacityWh', 0);
+        $this->RegisterPropertyInteger('PeerInstalledCapacityWh', 0);
         $this->RegisterPropertyString('Host', '');
         $this->RegisterPropertyString('OperatingMode', 'auto');
         $this->RegisterPropertyString('ExternalSystems', '[]');
@@ -1365,6 +1367,7 @@ PHP;
         $status = $second ? 'SecondRscpCapacityStatus' : 'RscpCapacityStatus';
         $label = $second ? 'RSCP zweites Farmgerät' : ($this->isFarmMode() ? 'RSCP Farmmaster' : 'RSCP Hauptgerät');
         $capacityIdent = $second ? 'SecondRscpCapacity' : 'RscpCapacity';
+        $manualCapacity = $this->ReadPropertyInteger($second ? 'PeerInstalledCapacityWh' : 'MasterInstalledCapacityWh');
         if (!$this->ReadPropertyBoolean('ReadRscpSolar')) {
             $notes[$label] = 'Lokales RSCP deaktiviert.';
             $this->setGroupedValue($status, $notes[$label]);
@@ -1398,12 +1401,14 @@ PHP;
             }
         }
         $notes[$label] = $host . ':' . $port . ' – ' . $message;
-        $capacity = $data['specification']['Installierte Kapazität (Wh)'] ?? null;
+        $capacity = $manualCapacity > 0 ? $manualCapacity : ($data['specification']['Installierte Kapazität (Wh)'] ?? null);
         $valid = $capacity !== null && $capacity > 0;
         $this->setGroupedValue($second ? 'SecondRscpCapacityValid' : 'RscpCapacityValid', $valid);
         $this->setCapacityVisibility($capacityIdent, $valid);
         if ($valid) {
-            $this->setGroupedValue($status, 'Installierte Kapazität über EMS_SYS_SPEC gelesen.');
+            $this->setGroupedValue($status, $manualCapacity > 0
+                ? 'Installierte Kapazität aus der Instanzkonfiguration.'
+                : 'Installierte Kapazität über EMS_SYS_SPEC gelesen.');
             $this->setGroupedValue($capacityIdent, $capacity / 1000);
             if (!$second && isset($live['SOC'])) {
                 $this->setGroupedValue('BatteryEnergy', round($capacity * $live['SOC'] / 100000, 3));
@@ -1413,7 +1418,7 @@ PHP;
             $message = $data['batteryError'] ?: ($capacity === null
                 ? 'EMS liefert keine installierte Batteriekapazität.'
                 : 'EMS meldet keine positive installierte Batteriekapazität.');
-            $notes[$label . ' Batterie'] = $message;
+            $notes[$label . ' Batterie'] = $message . ' Die installierte Kapazität kann in der Instanz hinterlegt werden.';
             $this->setGroupedValue($status, $message);
         }
         return $live;
