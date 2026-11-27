@@ -109,14 +109,14 @@ SVG;
   --e3dc-purple:#c3a4ff; --e3dc-orange:#f4b875;
 }
 .e3dc-flow-light {
-  --e3dc-bg-start:#f9fcff; --e3dc-bg-end:#e6eef7; --e3dc-card:#fff; --e3dc-border:#9db2c7;
+  --e3dc-bg-start:#fff; --e3dc-bg-end:#fff; --e3dc-card:#fff; --e3dc-border:#9db2c7;
   --e3dc-value:#122538; --e3dc-label:#27435c; --e3dc-detail:#405c75; --e3dc-hub:#fff;
   --e3dc-track:#718aa1; --e3dc-arrow:#426482; --e3dc-green:#087f63; --e3dc-blue:#006caf;
   --e3dc-purple:#7049ae; --e3dc-orange:#a7580d;
 }
 @media (prefers-color-scheme: light) {
   .e3dc-flow-auto {
-    --e3dc-bg-start:#f9fcff; --e3dc-bg-end:#e6eef7; --e3dc-card:#fff; --e3dc-border:#9db2c7;
+    --e3dc-bg-start:#fff; --e3dc-bg-end:#fff; --e3dc-card:#fff; --e3dc-border:#9db2c7;
     --e3dc-value:#122538; --e3dc-label:#27435c; --e3dc-detail:#405c75; --e3dc-hub:#fff;
     --e3dc-track:#718aa1; --e3dc-arrow:#426482; --e3dc-green:#087f63; --e3dc-blue:#006caf;
     --e3dc-purple:#7049ae; --e3dc-orange:#a7580d;
