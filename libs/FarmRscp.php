@@ -439,7 +439,7 @@ final class FarmRscp
         $specification = [];
         $batteryError = '';
         try {
-            $answer = $this->exchange($socket, self::element(0x01000098, 0, ''));
+            $answer = $this->exchange($socket, self::element(0x01000097, 0, ''));
             $specification = self::decodeInstalledCapacity($answer[0x01800098] ?? []);
             if ($specification === []) {
                 $batteryError = 'EMS liefert keine installierte Batteriekapazität.';
