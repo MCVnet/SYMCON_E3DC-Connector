@@ -29,7 +29,7 @@ final class EnergyFlowTile
             return <<<SVG
 <g transform="translate($x $y)">
   <title>$label · $reading</title>
-  <rect width="152" height="76" rx="14" class="e3dc-card"/>
+  <rect width="152" height="76" rx="14" class="e3dc-card" style="--e3dc-node-color:$color"/>
   <rect x="13" y="13" width="24" height="25" rx="7" fill="$color" fill-opacity="0.12"/>
   <g transform="translate(15 15) scale(.84)" stroke="$color" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none">$icon</g>
   <text x="44" y="24" font-size="14" class="e3dc-label"$fit>$label</text>
@@ -109,20 +109,24 @@ SVG;
   --e3dc-purple:#c3a4ff; --e3dc-orange:#f4b875;
 }
 .e3dc-flow-light {
-  --e3dc-bg-start:#fff; --e3dc-bg-end:#fff; --e3dc-card:#fff; --e3dc-border:#9db2c7;
+  --e3dc-bg-start:#fff; --e3dc-bg-end:#fff; --e3dc-card-tint:13%; --e3dc-card:#fff; --e3dc-border:#9db2c7;
   --e3dc-value:#122538; --e3dc-label:#27435c; --e3dc-detail:#405c75; --e3dc-hub:#fff;
   --e3dc-track:#718aa1; --e3dc-arrow:#426482; --e3dc-green:#087f63; --e3dc-blue:#006caf;
   --e3dc-purple:#7049ae; --e3dc-orange:#a7580d;
 }
 @media (prefers-color-scheme: light) {
   .e3dc-flow-auto {
-    --e3dc-bg-start:#fff; --e3dc-bg-end:#fff; --e3dc-card:#fff; --e3dc-border:#9db2c7;
+    --e3dc-bg-start:#fff; --e3dc-bg-end:#fff; --e3dc-card-tint:13%; --e3dc-card:#fff; --e3dc-border:#9db2c7;
     --e3dc-value:#122538; --e3dc-label:#27435c; --e3dc-detail:#405c75; --e3dc-hub:#fff;
     --e3dc-track:#718aa1; --e3dc-arrow:#426482; --e3dc-green:#087f63; --e3dc-blue:#006caf;
     --e3dc-purple:#7049ae; --e3dc-orange:#a7580d;
   }
 }
-.e3dc-card { fill:var(--e3dc-card); stroke:var(--e3dc-border); }
+.e3dc-card {
+  fill:var(--e3dc-card);
+  fill:color-mix(in srgb, var(--e3dc-card), var(--e3dc-node-color) var(--e3dc-card-tint, 0%));
+  stroke:var(--e3dc-border);
+}
 .e3dc-value { fill:var(--e3dc-value); }
 .e3dc-label { fill:var(--e3dc-label); }
 .e3dc-detail { fill:var(--e3dc-detail); }
