@@ -83,7 +83,7 @@ final class FarmRscp
     }
 
     private const LIVE_TAGS = [1 => 'PV', 2 => 'Battery', 3 => 'House', 4 => 'Grid', 5 => 'External',
-        8 => 'SOC', 31 => 'WallboxPower', 32 => 'WallboxSolar'];
+        6 => 'Autarky', 7 => 'SelfConsumption', 8 => 'SOC', 31 => 'WallboxPower', 32 => 'WallboxSolar'];
 
     public function readDevice(string $host, int $port, string $user, string $password, bool $includeSpecification = true): array
     {
@@ -155,7 +155,7 @@ final class FarmRscp
             $element = $answer[0x01800000 + $offset] ?? null;
             $value = $element === null ? null : self::decodeEnergy($element);
             if ($value !== null && $value >= -2147483648 && $value <= 2147483647
-                && ($name !== 'SOC' || ($value >= 0 && $value <= 100))) {
+                && (!in_array($name, ['SOC', 'Autarky', 'SelfConsumption'], true) || ($value >= 0 && $value <= 100))) {
                 $live[$name] = (int) round($value);
             }
         }
@@ -287,7 +287,7 @@ final class FarmRscp
                     continue;
                 }
                 $index = self::decodeEnergy($element);
-                if (is_int($index) && $index >= 0 && $index <= 255 && !isset($seen[$index])) {
+                if (is_int($index) && $index >= 0 && $index < 255 && !isset($seen[$index])) {
                     $entries[] = ['WB', $index, 0];
                     $seen[$index] = true;
                 }

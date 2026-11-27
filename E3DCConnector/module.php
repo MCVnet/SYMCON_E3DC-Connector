@@ -23,8 +23,8 @@ class E3DCConnector extends IPSModule
     private const RSCP_ENERGY = [
         'DB_BAT_POWER_IN' => 'Batterie geladen',
         'DB_BAT_POWER_OUT' => 'Batterie entladen',
-        'DB_GRID_POWER_IN' => 'Netzbezug',
-        'DB_GRID_POWER_OUT' => 'Netzeinspeisung',
+        'DB_GRID_POWER_IN' => 'Netzenergie (DB_GRID_POWER_IN)',
+        'DB_GRID_POWER_OUT' => 'Netzenergie (DB_GRID_POWER_OUT)',
         'DB_CONSUMPTION' => 'Verbrauch',
         'DB_PRODUCTION_POWER' => 'Produktion laut DB_PRODUCTION_POWER',
         'DB_PM_0_POWER' => 'Zähler 0',
@@ -38,7 +38,7 @@ class E3DCConnector extends IPSModule
         'DayGridImport' => 'Netzbezug heute (berechnet, kWh)',
         'DayGridExport' => 'Netzeinspeisung heute (berechnet, kWh)',
         'DayHouse' => 'Hausverbrauch heute (kWh)',
-        'DayHeatPump' => 'Zusatzverbrauch heute (kWh)',
+        'DayHeatPump' => 'Zusatzverbrauch heute (berechnet, kWh)',
         'DayWallbox' => 'Wallbox geladen heute (kWh)',
         'DayConsumption' => 'Gesamtverbrauch heute (kWh)'
     ];
@@ -195,11 +195,11 @@ class E3DCConnector extends IPSModule
         $this->maintainGroupedVariable('SecondRscpCapacityStatus', 'Status der Kapazitätsabfrage', '', VARIABLETYPE_STRING);
         $this->maintainGroupedVariable('SecondRscpCapacityValid', 'Spezifizierte Kapazität aktuell', '', VARIABLETYPE_BOOLEAN);
         $this->maintainGroupedVariable('BatteryCapacity', 'Nutzbare Kapazität (kWh)', '', VARIABLETYPE_FLOAT);
-        $this->maintainGroupedVariable('BatteryEnergy', 'Verbleibende Energie (kWh)', '', VARIABLETYPE_FLOAT);
+        $this->maintainGroupedVariable('BatteryEnergy', 'Verbleibende Energie (geschätzt, kWh)', '', VARIABLETYPE_FLOAT);
         $this->maintainGroupedVariable('BatteryEnergyAboveReserve', 'Speicherenergie oberhalb der Reserve (kWh)', '', VARIABLETYPE_FLOAT);
         $this->maintainGroupedVariable('BatteryEnergyValid', 'Speicherenergie aktuell', '', VARIABLETYPE_BOOLEAN);
-        $this->maintainGroupedVariable('FarmBatteryCapacity', 'Nutzbare Kapazität gesamt (kWh)', '', VARIABLETYPE_FLOAT);
-        $this->maintainGroupedVariable('FarmBatteryEnergy', 'Verbleibende Energie gesamt (kWh)', '', VARIABLETYPE_FLOAT);
+        $this->maintainGroupedVariable('FarmBatteryCapacity', 'Spezifizierte Kapazität gesamt (RSCP, kWh)', '', VARIABLETYPE_FLOAT);
+        $this->maintainGroupedVariable('FarmBatteryEnergy', 'Verbleibende Energie gesamt (geschätzt, kWh)', '', VARIABLETYPE_FLOAT);
         $this->maintainGroupedVariable('FarmPV', 'PV-Erzeugung gesamt (W)', '', VARIABLETYPE_INTEGER);
         $this->maintainGroupedVariable('FarmGrid', 'Netzleistung (W)', '', VARIABLETYPE_INTEGER);
         $this->maintainGroupedVariable('FarmGridImport', 'Netzbezug (W)', '', VARIABLETYPE_INTEGER);
@@ -356,7 +356,7 @@ class E3DCConnector extends IPSModule
     private const OBSOLETE_MODBUS = ['ModbusVersion', 'RegisterCount', 'EfficiencyRaw', 'EMSFlags', 'EMS',
         'SGReadyState', 'SGReadyValid', 'Emergency', 'EmergencyState', 'PowerMeters', 'DCStrings',
         'Inverters', 'RemoteStatus', 'WallboxPhaseMode', 'WallboxDetails', 'DetectedFarmDevices',
-        'FarmMeterPower', 'HeatPumpConsumption', 'AdditionalConsumerValid', 'FarmHouseConsumption', 'DayHeatPump'];
+        'FarmMeterPower', 'BatteryCapacity', 'BatteryEnergyAboveReserve', 'SecondCapacity'];
 
 
     private function variableLocation(string $ident): array
@@ -389,7 +389,7 @@ class E3DCConnector extends IPSModule
             return ($this->hasMasterPortalLogin() || !in_array($group, self::STANDALONE_GROUPS, true))
                 && (!in_array($group, ['Second', 'SecondStorage'], true) || $this->hasFarmPeer());
         }
-        return !in_array($group, self::FARM_GROUPS, true);
+        return $ident !== 'DayHeatPump' && !in_array($group, self::FARM_GROUPS, true);
     }
 
     private function maintainGroupedVariable(string $ident, string $name, string $profile, int $type): void
@@ -633,6 +633,9 @@ class E3DCConnector extends IPSModule
 
     private function accessoryMatchesMode(string $key, bool $farm): bool
     {
+        if (preg_match('/^Wallbox(?:Farm|Master|Zweit)?255$/D', $key)) {
+            return false;
+        }
         if (!preg_match('/^(?:Zaehler|Wechselrichter|Wallbox)(Farm|Zweit|Master)?[0-9]+$/D', $key, $parts)) {
             return true;
         }
@@ -1078,6 +1081,9 @@ PHP;
                 $farm = $this->readRscpFarmLive($host, $notes);
                 $farmValid = $this->publishRscpFarmLive($farm);
             }
+            if ($farmMode) {
+                $this->publishFarmStorage($live, $second);
+            }
             $this->publishJson('ReadNotes', $notes);
             $valid = isset($live['PV'], $live['Battery'], $live['House'], $live['Grid']);
             $this->publishDaily($farmValid, $valid ? $this->mergeRscpCore([], $live) : null, isset($farm['WallboxPower']));
@@ -1139,10 +1145,32 @@ PHP;
             $this->setGroupedValue('BatteryChargePower', max(0, $live['Battery']));
             $this->setGroupedValue('BatteryDischargePower', max(0, -$live['Battery']));
         }
+        foreach (['Autarky' => 'OneAutarky', 'SelfConsumption' => 'OneSelfConsumption'] as $key => $ident) {
+            if (isset($live[$key])) {
+                $this->setGroupedValue($ident, $live[$key]);
+            }
+        }
+        $this->setGroupedValue('OneEfficiencyValid', isset($live['Autarky'], $live['SelfConsumption']));
         if (isset($live['Grid'])) {
             $this->setGroupedValue('GridImport', max(0, $live['Grid']));
             $this->setGroupedValue('GridExport', max(0, -$live['Grid']));
         }
+    }
+
+    private function publishFarmStorage(array $master, array $peer): void
+    {
+        if (!$this->hasMasterPortalLogin() || !$this->hasFarmPeer() || !isset($master['SOC'], $peer['SOC'])
+            || !$this->getGroupedValue('RscpCapacityValid') || !$this->getGroupedValue('SecondRscpCapacityValid')) {
+            return;
+        }
+        $masterCapacity = $this->getGroupedValue('RscpCapacity');
+        $peerCapacity = $this->getGroupedValue('SecondRscpCapacity');
+        $capacity = $masterCapacity + $peerCapacity;
+        $energy = ($masterCapacity * $master['SOC'] + $peerCapacity * $peer['SOC']) / 100;
+        $this->setGroupedValue('FarmBatteryCapacity', $capacity);
+        $this->setGroupedValue('FarmBatteryEnergy', round($energy, 3));
+        $this->setGroupedValue('FarmBatterySOC', round(100 * $energy / $capacity, 2));
+        $this->setGroupedValue('FarmBatteryValid', true);
     }
 
     private function readRscpFarmLive(string $host, array &$notes): array
@@ -1238,6 +1266,10 @@ PHP;
         if ($valid) {
             $this->setGroupedValue($status, 'Spezifizierte Kapazität für Batterieindex 0 gelesen.');
             $this->setGroupedValue($second ? 'SecondRscpCapacity' : 'RscpCapacity', $capacity / 1000);
+            if (!$second && isset($live['SOC'])) {
+                $this->setGroupedValue('BatteryEnergy', round($capacity * $live['SOC'] / 100000, 3));
+                $this->setGroupedValue('BatteryEnergyValid', true);
+            }
         } else {
             $message = $data['batteryError'] ?: ($capacity === null
                 ? 'Keine spezifizierte Kapazität für Batterieindex 0 geliefert.'
@@ -1518,6 +1550,9 @@ PHP;
         [$client, $host, $port, $user, $password] = $this->rscpTarget($secondDevice, $farmController);
         $names = ['INFO' => 'Geräteinformationen', 'DCDC' => 'DC/DC-Wandler', 'EMS' => 'Energiemanagement', 'BAT' => 'Batterie und Batteriemodule',
             'PVI' => 'Wechselrichter', 'PM' => 'Leistungsmesser', 'WB' => 'Wallbox'];
+        if ($group === 'WB' && $index === 255) {
+            throw new RuntimeException('Wallbox-Index 255 wird nicht als Einzelgerät geführt.');
+        }
         if (!isset($names[$group])) {
             throw new RuntimeException('Unbekannte RSCP-Datengruppe.');
         }
@@ -1919,6 +1954,7 @@ PHP;
             $this->setGroupedValue('DayForecast', (float) $forecast);
         }
         $this->setGroupedValue('DayForecastAvailable', $forecastAvailable);
+        IPS_SetHidden($ownForecast, !$forecastAvailable);
 
         $single = !$this->isFarmMode();
         $valid = $single ? $core !== null : $valid;
@@ -1967,7 +2003,18 @@ PHP;
                 $state['start'] = $now;
             }
         }
-        if ($valid) {
+        if (!$single && $valid) {
+            $consumer = $this->currentAdditionalMeter($now);
+            $this->setGroupedValue('AdditionalConsumerValid', $consumer !== null);
+            if ($consumer !== null) {
+                [$index, $power, $source] = $consumer;
+                $house = max(0, $this->getGroupedValue('FarmConsumption') - $power);
+                $this->updateAdditionalConsumer(true, $index, $source);
+                $this->setGroupedValue('HeatPumpConsumption', $power);
+                $this->setGroupedValue('FarmHouseConsumption', $house);
+                $powers['DayHeatPump'] = $power;
+                $powers['DayHouse'] = $house;
+            }
             $powers += [
                 'DayGridImport' => $this->getGroupedValue('FarmGridImport'),
                 'DayGridExport' => $this->getGroupedValue('FarmGridExport'),
@@ -2014,6 +2061,10 @@ PHP;
                 }
                 $this->setGroupedValue('DayPVSource', 'Aus RSCP-Live-Werten integriert');
             }
+            if (!$single && in_array($ident, ['DayHouse', 'DayHeatPump'], true)
+                && !isset($powers[$ident]) && (float) $total === 0.0) {
+                continue;
+            }
             $this->setGroupedValue($ident, round($total, 3));
         }
         $state['topology'] = $topology;
@@ -2024,19 +2075,46 @@ PHP;
         $this->setGroupedValue('DayBalanceStart', $state['balanceStart'] ?? 0);
     }
 
-    private function updateAdditionalConsumer(bool $visible, int $index = -1): void
+    private function currentAdditionalMeter(int $now): ?array
+    {
+        $root = $this->findModuleCategory($this->InstanceID, 'CategoryAccessories');
+        if ($root === false) {
+            return null;
+        }
+        $meters = [];
+        $maxAge = 2 * max(15, $this->ReadPropertyInteger('RscpDetailInterval'));
+        foreach (IPS_GetChildrenIDs($root) as $category) {
+            $key = IPS_GetObject($category)['ObjectIdent'];
+            if (!preg_match('/^Zaehler(Master|Farm)([0-9]+)$/D', $key, $match)) {
+                continue;
+            }
+            $role = @IPS_GetObjectIDByIdent('Role', $category);
+            $active = @IPS_GetObjectIDByIdent('PowerCurrent', $category);
+            $power = @IPS_GetObjectIDByIdent('PowerTotal', $category);
+            if ($role === false || $active === false || $power === false
+                || GetValue($role) !== 'Zusatzverbrauchszähler' || !GetValue($active)
+                || $now - IPS_GetVariable($power)['VariableUpdated'] > $maxAge) {
+                continue;
+            }
+            $meters[$match[1]][] = [(int) $match[2], max(0, (int) round(GetValue($power))), IPS_GetName($category)];
+        }
+        $candidates = $meters['Master'] ?? $meters['Farm'] ?? [];
+        return count($candidates) === 1 ? $candidates[0] : null;
+    }
+
+    private function updateAdditionalConsumer(bool $visible, int $index = -1, string $source = ''): void
     {
         $settings = $this->accessorySettings();
         $names = $this->accessoryLegacyNames();
         if ($settings === null || $names === null) {
             return;
         }
-        $consumer = $this->additionalConsumerName($index, $settings, $names);
+        $consumer = $source !== '' ? $source : $this->additionalConsumerName($index, $settings, $names);
         foreach ([
             'HeatPumpConsumption' => $consumer . ' (W)',
             'FarmHouseConsumption' => 'Hausverbrauch ohne ' . $consumer . ' (W)',
-            'DayHeatPump' => $consumer . ' heute (kWh)',
-            'DayHouse' => $this->isFarmMode() ? 'Hausverbrauch ohne ' . $consumer . ' heute (kWh)' : self::DAILY['DayHouse'],
+            'DayHeatPump' => $consumer . ' heute (berechnet, kWh)',
+            'DayHouse' => $this->isFarmMode() ? 'Hausverbrauch ohne ' . $consumer . ' heute (berechnet, kWh)' : self::DAILY['DayHouse'],
             'AdditionalConsumerValid' => 'Zusatzverbrauch aktuell',
         ] as $ident => $caption) {
             $id = $this->findGroupedVariable($ident, $this->InstanceID);
@@ -2046,7 +2124,8 @@ PHP;
             if (IPS_GetName($id) !== $caption) {
                 IPS_SetName($id, $caption);
             }
-            IPS_SetHidden($id, !$visible && ($ident !== 'DayHouse' || $this->isFarmMode()));
+            IPS_SetHidden($id, !$visible && $ident !== 'AdditionalConsumerValid'
+                && ($ident !== 'DayHouse' || $this->isFarmMode()));
         }
     }
 
