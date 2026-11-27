@@ -1284,7 +1284,7 @@ PHP;
         $ident = $farm ? 'IpsViewEnergyFlowFarm' : 'IpsViewEnergyFlowSingle';
         $name = $farm ? 'E3/DC Energiefluss' : 'E3/DC Energiefluss – Einzelgerät';
         $existing = @IPS_GetObjectIDByIdent($ident, $parent);
-        if ($existing !== false) {
+        if ($existing !== false && !$this->isIncompleteIpsView($existing)) {
             return 'Die IPSView ist bereits vorhanden (Objekt-ID ' . $existing . ').';
         }
         $ids = [];
@@ -1305,7 +1305,8 @@ PHP;
         }
 
         $candidate = @IPS_GetMediaIDByName($name, $parent);
-        $media = $candidate !== false && $this->isEmptyIpsView($candidate) ? $candidate : IPS_CreateMedia(MEDIATYPE_IPSVIEW);
+        $media = $existing !== false ? $existing
+            : ($candidate !== false && $this->isEmptyIpsView($candidate) ? $candidate : IPS_CreateMedia(MEDIATYPE_IPSVIEW));
         if ($media <= 0) {
             return 'Das IPSView-Medienobjekt konnte nicht angelegt werden.';
         }
@@ -1315,12 +1316,25 @@ PHP;
             || !IPS_SetName($media, $name)
             || !IPS_SetParent($media, $parent)
             || !IPS_SetIdent($media, $ident)) {
-            if ($media !== $candidate) {
+            if ($media !== $candidate && $media !== $existing) {
                 IPS_DeleteMedia($media, true);
             }
             return 'Die IPSView konnte nicht gespeichert werden.';
         }
         return 'IPSView „' . $name . '“ unter Visualisierung erstellt (Objekt-ID ' . $media . ').';
+    }
+
+    private function isIncompleteIpsView(int $media): bool
+    {
+        if (!IPS_MediaExists($media) || IPS_GetMedia($media)['MediaType'] !== MEDIATYPE_IPSVIEW) {
+            return false;
+        }
+        $body = @IPS_GetMediaContent($media);
+        $decoded = is_string($body) ? base64_decode($body, true) : false;
+        $view = is_string($decoded) ? $this->decodeJsonArray($decoded) : null;
+        $page = $view['Pages'][0] ?? [];
+        return ($view['ViewVersion'] ?? 0) === 1 && count($view['Pages'] ?? []) === 1
+            && ($page['PageName'] ?? '') === 'Energiefluss' && !isset($page['PopupWidth']);
     }
 
     private function isEmptyIpsView(int $media): bool
