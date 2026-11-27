@@ -68,6 +68,7 @@ class E3DCConnector extends IPSModule
         $this->RegisterPropertyString('FarmRscpUser', 'local.user');
         $this->RegisterPropertyString('FarmRscpPassword', '');
         $this->RegisterPropertyString('FarmRscpKey', '');
+        $this->RegisterPropertyString('EnergyFlowTheme', 'dark');
         $this->RegisterPropertyString('MasterPortalUser', '');
         $this->RegisterPropertyString('MasterPortalPassword', '');
         $this->RegisterAttributeInteger('RscpSolarReadAt', 0);
@@ -1134,7 +1135,8 @@ PHP;
         if ($tile === false || !$this->shouldCreateVariable('EnergyFlowTile', 'E3DCGroupVisualization')) {
             return;
         }
-        $html = \E3DCConnector\EnergyFlowTile::render($power, $autarky, $soc, $meter, $status);
+        $html = \E3DCConnector\EnergyFlowTile::render($power, $autarky, $soc, $meter, $status,
+            $this->ReadPropertyString('EnergyFlowTheme'));
         if (GetValue($tile) !== $html) {
             SetValue($tile, $html);
         }

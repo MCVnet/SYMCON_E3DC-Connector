@@ -235,6 +235,23 @@
     },
     {
       "type": "ExpansionPanel",
+      "caption": "Energiefluss-Kachel",
+      "expanded": false,
+      "items": [
+        {
+          "type": "Select",
+          "name": "EnergyFlowTheme",
+          "caption": "Farbschema",
+          "options": [
+            { "caption": "Dunkel", "value": "dark" },
+            { "caption": "Hell", "value": "light" },
+            { "caption": "Automatisch (Geräteeinstellung)", "value": "auto" }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "ExpansionPanel",
       "caption": "Solarprognose",
       "expanded": false,
       "items": [
