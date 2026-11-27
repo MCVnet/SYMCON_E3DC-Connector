@@ -88,31 +88,53 @@ class E3DCConnector extends IPSModule
 
     private function findModuleCategory(int $instance, string $ident): int|false
     {
-        $id = @IPS_GetObjectIDByIdent($ident, $instance);
+        $archive = @IPS_GetObjectIDByIdent('E3DCInactive' . $instance, 0);
+        $parents = [$instance];
+        if ($archive !== false && IPS_CategoryExists($archive)) {
+            $parents[] = $archive;
+        }
+        foreach ($parents as $parent) {
+            $id = $this->findLayoutCategory($parent, $ident);
+            if ($id !== false) {
+                return $id;
+            }
+        }
+        return false;
+    }
+
+    private function findLayoutCategory(int $parent, string $ident): int|false
+    {
+        $id = @IPS_GetObjectIDByIdent($ident, $parent);
         if ($id !== false && IPS_CategoryExists($id)) {
             return $id;
         }
-        foreach (['CategoryFarm', 'CategoryRscpDetails', 'CategorySystem'] as $rootIdent) {
-            $root = @IPS_GetObjectIDByIdent($rootIdent, $instance);
-            if ($root !== false && IPS_CategoryExists($root)) {
-                $id = @IPS_GetObjectIDByIdent($ident, $root);
-                if ($id !== false && IPS_CategoryExists($id)) {
+        foreach (['CategoryFarm', 'CategoryRscpDetails', 'CategorySystem', 'Device1', 'Device2'] as $branch) {
+            $child = @IPS_GetObjectIDByIdent($branch, $parent);
+            if ($child !== false && IPS_CategoryExists($child)) {
+                $id = $this->findLayoutCategory($child, $ident);
+                if ($id !== false) {
                     return $id;
-                }
-                if ($rootIdent === 'CategoryRscpDetails') {
-                    foreach (['Device1', 'Device2'] as $deviceIdent) {
-                        $device = @IPS_GetObjectIDByIdent($deviceIdent, $root);
-                        if ($device !== false && IPS_CategoryExists($device)) {
-                            $id = @IPS_GetObjectIDByIdent($ident, $device);
-                            if ($id !== false && IPS_CategoryExists($id)) {
-                                return $id;
-                            }
-                        }
-                    }
                 }
             }
         }
         return false;
+    }
+
+    private function inactiveCategory(): int
+    {
+        $archive = $this->accessoryCategory(0, 'E3DCInactive' . $this->InstanceID,
+            'E3/DC Connector – inaktive Messwerte (' . $this->InstanceID . ')');
+        IPS_SetHidden($archive, true);
+        return $archive;
+    }
+
+    private function placeLayoutCategory(int $category, int|false $parent): void
+    {
+        $destination = $parent !== false ? $parent : $this->inactiveCategory();
+        if (IPS_GetParent($category) !== $destination) {
+            IPS_SetParent($category, $destination);
+        }
+        IPS_SetHidden($category, $parent === false);
     }
 
     private function structureCategory(string $ident, string $name, int $parent): int
@@ -328,6 +350,7 @@ class E3DCConnector extends IPSModule
     ];
 
     private const FARM_GROUPS = ['Farm', 'FarmStorage', 'Second', 'SecondStorage'];
+    private const STANDALONE_GROUPS = ['Master', 'Storage', 'Identity', 'Wallbox'];
     private const OBSOLETE_MODBUS = ['ModbusVersion', 'RegisterCount', 'EfficiencyRaw', 'EMSFlags', 'EMS',
         'SGReadyState', 'SGReadyValid', 'Emergency', 'EmergencyState', 'PowerMeters', 'DCStrings',
         'Inverters', 'RemoteStatus', 'WallboxPhaseMode', 'WallboxDetails', 'DetectedFarmDevices',
@@ -359,7 +382,12 @@ class E3DCConnector extends IPSModule
         if (!filter_var($this->ReadPropertyString('Host'), FILTER_VALIDATE_IP)) {
             return false;
         }
-        return $this->isFarmMode() || (!in_array(substr($groupIdent, 9), self::FARM_GROUPS, true) && $ident !== 'DayHeatPump');
+        $group = substr($groupIdent, 9);
+        if ($this->isFarmMode()) {
+            return !in_array($group, self::STANDALONE_GROUPS, true)
+                && (!in_array($group, ['Second', 'SecondStorage'], true) || $this->hasFarmPeer());
+        }
+        return !in_array($group, self::FARM_GROUPS, true);
     }
 
     private function maintainGroupedVariable(string $ident, string $name, string $profile, int $type): void
@@ -464,11 +492,9 @@ class E3DCConnector extends IPSModule
 
     private function setGroupedValue(string $ident, mixed $value): void
     {
-        $variable = $this->findGroupedVariable($ident, $this->InstanceID);
-        if ($variable === false && !$this->shouldCreateVariable($ident, $this->variableLocation($ident)[0])) {
-            return;
+        if ($this->shouldCreateVariable($ident, $this->variableLocation($ident)[0])) {
+            SetValue($this->groupedVariableID($ident), $value);
         }
-        SetValue($variable !== false ? $variable : $this->groupedVariableID($ident), $value);
     }
 
     private function getGroupedValue(string $ident): mixed
@@ -499,69 +525,114 @@ class E3DCConnector extends IPSModule
             $status .= ' – weiteres Farmgerät fehlt';
         }
         $this->setGroupedValue('OperatingModeStatus', $status);
-        $useMainDevice = !$farm;
-        $farmRoot = $farm ? $this->accessoryCategory($this->InstanceID, 'CategoryFarm', 'Farmbetrieb')
-            : $this->findModuleCategory($this->InstanceID, 'CategoryFarm');
+        $farmRoot = $configured && $farm
+            ? $this->structureCategory('CategoryFarm', 'Farmbetrieb', $this->InstanceID) : false;
         if ($farmRoot !== false) {
-            IPS_SetHidden($farmRoot, !$farm);
+            IPS_SetHidden($farmRoot, false);
             IPS_SetPosition($farmRoot, 10);
         }
-        $devices = $configured ? $this->accessoryCategory($this->InstanceID, 'CategoryRscpDetails', 'Einzelgeräte')
-            : $this->findModuleCategory($this->InstanceID, 'CategoryRscpDetails');
-        if ($devices !== false) {
-            IPS_SetPosition($devices, 20);
-        }
-        $main = $devices !== false && !$farm ? $this->accessoryCategory($devices, 'Device1', 'Hauptgerät')
-            : $this->findModuleCategory($this->InstanceID, 'Device1');
-        $peer = $devices !== false && $farm && $this->hasFarmPeer() ? $this->accessoryCategory($devices, 'Device2', 'Zweites Farmgerät')
-            : $this->findModuleCategory($this->InstanceID, 'Device2');
+        $devices = $configured ? $this->deviceLayoutCategory() : false;
+        $main = $devices !== false && !$farm
+            ? $this->structureCategory('Device1', 'Hauptgerät', $devices) : false;
+        $peer = $devices !== false && $farm && $this->hasFarmPeer()
+            ? $this->structureCategory('Device2', 'Zweites Farmgerät', $devices) : false;
         $system = $this->accessoryCategory($this->InstanceID, 'CategorySystem', 'System und Diagnose');
         IPS_SetPosition($system, 30);
         $positions = ['Farm' => 10, 'FarmStorage' => 15, 'Master' => 20, 'Storage' => 25,
             'Second' => 30, 'SecondStorage' => 35, 'Wallbox' => 40, 'Daily' => 50,
             'Identity' => 60, 'Diagnostics' => 90];
-        foreach (self::GROUPS as $group => [$name]) {
-            $hidden = (!$farm && in_array($group, self::FARM_GROUPS, true))
-                || (!$useMainDevice && in_array($group, ['Master', 'Storage', 'Identity'], true));
-            if (!$farm && $group === 'Master') {
-                $name = 'Einzelgerät – Leistung und Verbrauch';
-            }
-            $position = $positions[$group];
-            $category = $this->findModuleCategory($this->InstanceID, 'E3DCGroup' . $group);
-            if ($category !== false && IPS_CategoryExists($category)) {
-                $parent = match ($group) {
-                    'Farm', 'FarmStorage' => $farmRoot,
-                    'Daily' => $farm ? $farmRoot : $main,
-                    'Diagnostics' => $system,
-                    'Master', 'Storage', 'Identity' => $main,
-                    'Second', 'SecondStorage' => $peer,
-                    default => $devices
-                };
-                if ($parent !== false && IPS_GetParent($category) !== $parent) {
-                    IPS_SetParent($category, $parent);
-                }
-                IPS_SetName($category, $name);
-                IPS_SetHidden($category, $hidden);
-                IPS_SetPosition($category, $position);
-            }
-        }
-        foreach (['Device1' => !$useMainDevice, 'FarmController' => !$farm, 'Device2' => !$farm] as $key => $hidden) {
-            $old = $this->findModuleCategory($this->InstanceID, $key);
-            if ($old === false) {
-                continue;
-            }
-            if ($key === 'FarmController' && $farmRoot !== false && IPS_GetParent($old) !== $farmRoot) {
-                IPS_SetParent($old, $farmRoot);
-                IPS_SetPosition($old, 60);
-            }
-            IPS_SetHidden($old, $hidden);
-        }
-        foreach (['CategoryAccessories' => $devices, 'CategoryExternalSystems' => $system] as $ident => $parent) {
+        foreach (self::GROUPS as $group => [$name, $idents]) {
+            $ident = 'E3DCGroup' . $group;
+            $parent = match ($group) {
+                'Farm', 'FarmStorage' => $farmRoot,
+                'Daily' => $farm ? $farmRoot : $main,
+                'Diagnostics' => $system,
+                'Master', 'Storage', 'Identity', 'Wallbox' => $main,
+                'Second', 'SecondStorage' => $peer
+            };
             $category = $this->findModuleCategory($this->InstanceID, $ident);
-            if ($category !== false && $parent !== false && IPS_GetParent($category) !== $parent) {
-                IPS_SetParent($category, $parent);
+            if ($parent === false) {
+                if ($group === 'Daily') {
+                    $idents = array_merge($idents, array_keys(self::DAILY));
+                }
+                foreach ($idents as $variableIdent) {
+                    $variable = @IPS_GetObjectIDByIdent($variableIdent, $this->InstanceID);
+                    if ($variable !== false && IPS_VariableExists($variable)) {
+                        $category = $category !== false ? $category
+                            : $this->accessoryCategory($this->inactiveCategory(), $ident, $name);
+                        if (@IPS_GetObjectIDByIdent($variableIdent, $category) === false) {
+                            IPS_SetParent($variable, $category);
+                        }
+                    }
+                }
+            }
+            if ($category !== false) {
+                $this->placeLayoutCategory($category, $parent);
+                IPS_SetName($category, !$farm && $group === 'Master' ? 'Einzelgerät – Leistung und Verbrauch' : $name);
+                IPS_SetPosition($category, $positions[$group]);
             }
         }
+        foreach ([
+            'Device1' => $main !== false ? $devices : false,
+            'Device2' => $peer !== false ? $devices : false,
+            'FarmController' => $farmRoot,
+            'CategoryRscpDetails' => $devices !== false ? IPS_GetParent($devices) : false,
+            'CategoryFarm' => $farmRoot !== false ? $this->InstanceID : false,
+            'CategoryAccessories' => $devices,
+            'CategoryExternalSystems' => $system
+        ] as $ident => $parent) {
+            $category = $this->findModuleCategory($this->InstanceID, $ident);
+            if ($category !== false) {
+                $this->placeLayoutCategory($category, $parent);
+            }
+        }
+        $this->updateAccessoryLayout($configured, $farm);
+    }
+
+    private function deviceLayoutCategory(): int
+    {
+        $farm = $this->isFarmMode();
+        $parent = $farm ? $this->structureCategory('CategoryFarm', 'Farmbetrieb', $this->InstanceID) : $this->InstanceID;
+        $devices = $this->structureCategory('CategoryRscpDetails', $farm ? 'Farmgeräte' : 'Einzelgeräte', $parent);
+        IPS_SetPosition($devices, $farm ? 70 : 20);
+        return $devices;
+    }
+
+    private function updateAccessoryLayout(bool $configured, bool $farm): void
+    {
+        $root = $this->findModuleCategory($this->InstanceID, 'CategoryAccessories');
+        if ($root === false || !$configured) {
+            return;
+        }
+        $archive = @IPS_GetObjectIDByIdent('E3DCInactive' . $this->InstanceID, 0);
+        $stored = $archive !== false ? @IPS_GetObjectIDByIdent('InactiveAccessories', $archive) : false;
+        foreach (IPS_GetChildrenIDs($root) as $id) {
+            $key = IPS_GetObject($id)['ObjectIdent'];
+            if (IPS_CategoryExists($id) && !$this->accessoryMatchesMode($key, $farm)) {
+                $stored = $stored !== false ? $stored
+                    : $this->accessoryCategory($this->inactiveCategory(), 'InactiveAccessories', 'Zubehör und Messpunkte');
+                IPS_SetParent($id, $stored);
+            }
+        }
+        if ($stored !== false) {
+            foreach (IPS_GetChildrenIDs($stored) as $id) {
+                if (IPS_CategoryExists($id) && $this->accessoryMatchesMode(IPS_GetObject($id)['ObjectIdent'], $farm)) {
+                    IPS_SetParent($id, $root);
+                }
+            }
+        }
+    }
+
+    private function accessoryMatchesMode(string $key, bool $farm): bool
+    {
+        if (!preg_match('/^(?:Zaehler|Wechselrichter|Wallbox)(Farm|Zweit)?[0-9]+$/D', $key, $parts)) {
+            return true;
+        }
+        return match ($parts[1] ?? '') {
+            'Farm' => $farm,
+            'Zweit' => $farm && $this->hasFarmPeer(),
+            default => !$farm
+        };
     }
 
     private function publishExternalSystems(): void
@@ -975,9 +1046,6 @@ PHP;
             $farmMode = $this->isFarmMode();
             $readMainDevice = !$farmMode;
             $live = $readMainDevice ? $this->readLocalRscpDevice($host, false, $notes) : [];
-            if (!$readMainDevice) {
-                $this->setGroupedValue('RscpCapacityStatus', 'Im Farmbetrieb wird der Farmcontroller abgefragt.');
-            }
             if ($live !== []) {
                 $this->publishRscpLive($live);
             }
@@ -1409,18 +1477,22 @@ PHP;
 
     public function ReadRscpDetails(bool $secondDevice, string $group, int $index, bool $farmController = false): string
     {
+        if ($this->isFarmMode() !== ($secondDevice || $farmController)
+            || ($secondDevice && !$this->hasFarmPeer())) {
+            throw new RuntimeException('Das gewählte RSCP-Ziel ist in dieser Betriebsart nicht eingerichtet.');
+        }
         [$client, $host, $port, $user, $password] = $this->rscpTarget($secondDevice, $farmController);
         $names = ['INFO' => 'Geräteinformationen', 'DCDC' => 'DC/DC-Wandler', 'EMS' => 'Energiemanagement', 'BAT' => 'Batterie und Batteriemodule',
             'PVI' => 'Wechselrichter', 'PM' => 'Leistungsmesser', 'WB' => 'Wallbox'];
         if (!isset($names[$group])) {
             throw new RuntimeException('Unbekannte RSCP-Datengruppe.');
         }
-        $root = $farmController ? $this->accessoryCategory($this->InstanceID, 'CategoryFarm', 'Farmbetrieb')
-            : $this->accessoryCategory($this->InstanceID, 'CategoryRscpDetails', 'Einzelgeräte');
+        $root = $farmController ? $this->structureCategory('CategoryFarm', 'Farmbetrieb', $this->InstanceID)
+            : $this->deviceLayoutCategory();
         $device = $this->structureCategory($farmController ? 'FarmController' : ($secondDevice ? 'Device2' : 'Device1'),
             $farmController ? 'Farmcontroller' : ($secondDevice ? 'Zweites Farmgerät' : 'Hauptgerät'), $root);
         IPS_SetPosition($device, 60);
-        IPS_SetHidden($device, !$farmController && !$secondDevice && $this->isFarmMode());
+        IPS_SetHidden($device, false);
         $category = $this->accessoryCategory($device, $group . $index, $names[$group] . (in_array($group, ['INFO', 'EMS'], true) ? '' : ' ' . $index));
         $kind = ['PVI' => 'Wechselrichter', 'PM' => 'Zaehler', 'WB' => 'Wallbox'][$group] ?? null;
         $key = $kind !== null ? $kind . ($farmController ? 'Farm' : ($secondDevice ? 'Zweit' : '')) . $index : null;
@@ -1512,7 +1584,7 @@ PHP;
     private function publishRscpAccessory(string $key, string $label, array $data, bool $secondDevice, string $role = ''): void
     {
         $root = $this->structureCategory('CategoryAccessories', 'Zubehör und Messpunkte',
-            $this->accessoryCategory($this->InstanceID, 'CategoryRscpDetails', 'Einzelgeräte'));
+            $this->deviceLayoutCategory());
         IPS_SetPosition($root, 70);
         $settings = $this->accessorySettings() ?? [];
         $default = $label . ($secondDevice ? ' – zweites Farmgerät' : '');
