@@ -1095,7 +1095,7 @@ PHP;
             $this->publishDaily($farmValid, $valid ? $this->mergeRscpCore([], $live) : null, isset($farm['WallboxPower']), $meter);
             $complete = $farmMode ? $farmValid : $valid;
             $this->publishEnergyFlow($farmMode ? $farm : $live, $farmMode,
-                $complete ? 'Aktualisiert um ' . date('H:i:s') : 'Live-Daten unvollständig', $meter);
+                $complete ? 'Live-Daten' : 'Live-Daten unvollständig', $meter);
             if ($valid || $farmValid || $live !== [] || $farm !== [] || $second !== []) {
                 $this->setGroupedValue('LastSuccess', time());
             }
@@ -1130,7 +1130,14 @@ PHP;
             $soc = $power !== [] && $this->getGroupedValue('FarmBatteryValid')
                 ? $this->getGroupedValue('FarmBatterySOC') : null;
         }
-        $this->setGroupedValue('EnergyFlowTile', \E3DCConnector\EnergyFlowTile::render($power, $autarky, $soc, $meter, $status));
+        $tile = $this->findGroupedVariable('EnergyFlowTile', $this->InstanceID);
+        if ($tile === false || !$this->shouldCreateVariable('EnergyFlowTile', 'E3DCGroupVisualization')) {
+            return;
+        }
+        $html = \E3DCConnector\EnergyFlowTile::render($power, $autarky, $soc, $meter, $status);
+        if (GetValue($tile) !== $html) {
+            SetValue($tile, $html);
+        }
     }
 
     private function rscpCredentials(): ?array
