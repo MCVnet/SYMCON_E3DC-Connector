@@ -444,6 +444,22 @@
     },
     {
       "type": "ExpansionPanel",
+      "caption": "IPSView",
+      "expanded": false,
+      "items": [
+        {
+          "type": "Label",
+          "caption": "Erstellt unter Visualisierung eine bearbeitbare Energiefluss-View mit nativen IPSView-Elementen. Zum Bearbeiten wird der IPSView Designer benötigt."
+        },
+        {
+          "type": "Button",
+          "caption": "IPSView Energiefluss anlegen",
+          "onClick": "echo E3DCF_CreateIpsViewEnergyFlow($id);"
+        }
+      ]
+    },
+    {
+      "type": "ExpansionPanel",
       "caption": "RSCP-Ladeeinstellungen",
       "expanded": false,
       "items": [

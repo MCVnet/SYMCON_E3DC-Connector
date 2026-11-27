@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../libs/FarmRscp.php';
 require_once __DIR__ . '/../libs/EnergyFlowTile.php';
+require_once __DIR__ . '/../libs/IpsViewEnergyFlow.php';
 
 final class E3DCInstanceUnavailable extends ErrorException
 {
@@ -1258,6 +1259,85 @@ PHP;
         if (GetValue($tile) !== $html) {
             SetValue($tile, $html);
         }
+    }
+
+    public function CreateIpsViewEnergyFlow(): string
+    {
+        $lock = 'E3DCConnector.IpsView.' . $this->InstanceID;
+        if (!IPS_SemaphoreEnter($lock, 0)) {
+            return 'Die IPSView wird bereits angelegt.';
+        }
+        try {
+            return $this->installIpsViewEnergyFlow();
+        } finally {
+            IPS_SemaphoreLeave($lock);
+        }
+    }
+
+    private function installIpsViewEnergyFlow(): string
+    {
+        $parent = $this->findModuleCategory($this->InstanceID, 'E3DCGroupVisualization');
+        if ($parent === false) {
+            return 'Zuerst die Anlage in der Instanz konfigurieren.';
+        }
+        $farm = $this->isFarmMode();
+        $ident = $farm ? 'IpsViewEnergyFlowFarm' : 'IpsViewEnergyFlowSingle';
+        $name = $farm ? 'E3/DC Energiefluss' : 'E3/DC Energiefluss – Einzelgerät';
+        $existing = @IPS_GetObjectIDByIdent($ident, $parent);
+        if ($existing !== false) {
+            return 'Die IPSView ist bereits vorhanden (Objekt-ID ' . $existing . ').';
+        }
+        $ids = [];
+        $bindings = $farm ? [
+            'PV' => 'FarmPV', 'Grid' => 'FarmGrid', 'Battery' => 'FarmBatteryPower',
+            'Wallbox' => 'FarmWallboxPower', 'Consumption' => 'FarmConsumption', 'SOC' => 'FarmBatterySOC',
+            'Autarky' => 'FarmAutarky', 'House' => 'FarmHouseConsumption', 'Meter' => 'HeatPumpConsumption'
+        ] : [
+            'PV' => 'PV', 'Grid' => 'Grid', 'Battery' => 'Battery', 'Wallbox' => 'WallboxPower',
+            'Consumption' => 'House', 'SOC' => 'SOC', 'Autarky' => 'OneAutarky'
+        ];
+        foreach ($bindings as $part => $variable) {
+            $ids[$part] = $this->findGroupedVariable($variable, $this->InstanceID) ?: 0;
+        }
+        $additionalMeter = $farm && $ids['Meter'] > 0 && $ids['House'] > 0 ? $this->currentAdditionalMeter(time()) : null;
+        if ($ids['PV'] === 0 || $ids['Grid'] === 0 || $ids['Consumption'] === 0) {
+            return 'Die Live-Variablen der Betriebsart fehlen. Zuerst die Konfiguration der Instanz übernehmen.';
+        }
+
+        $candidate = @IPS_GetMediaIDByName($name, $parent);
+        $media = $candidate !== false && $this->isEmptyIpsView($candidate) ? $candidate : IPS_CreateMedia(MEDIATYPE_IPSVIEW);
+        if ($media <= 0) {
+            return 'Das IPSView-Medienobjekt konnte nicht angelegt werden.';
+        }
+        $content = \E3DCConnector\IpsViewEnergyFlow::render($media, $name, $ids, $additionalMeter[2] ?? null);
+        if (!IPS_SetMediaFile($media, 'media/' . $media . '.ipsView', false)
+            || !IPS_SetMediaContent($media, base64_encode($content))
+            || !IPS_SetName($media, $name)
+            || !IPS_SetParent($media, $parent)
+            || !IPS_SetIdent($media, $ident)) {
+            if ($media !== $candidate) {
+                IPS_DeleteMedia($media, true);
+            }
+            return 'Die IPSView konnte nicht gespeichert werden.';
+        }
+        return 'IPSView „' . $name . '“ unter Visualisierung erstellt (Objekt-ID ' . $media . ').';
+    }
+
+    private function isEmptyIpsView(int $media): bool
+    {
+        if (IPS_GetMedia($media)['MediaType'] !== MEDIATYPE_IPSVIEW) {
+            return false;
+        }
+        $body = @IPS_GetMediaContent($media);
+        if ($body === '') {
+            return true;
+        }
+        $decoded = is_string($body) ? base64_decode($body, true) : false;
+        $view = is_string($decoded) ? $this->decodeJsonArray($decoded) : null;
+        if ($view === null || !isset($view['Pages']) || count($view['Pages']) > 1) {
+            return false;
+        }
+        return ($view['Pages'][0]['Controls'] ?? []) === [] && ($view['Images'] ?? []) === [];
     }
 
     private function rscpCredentials(): ?array
