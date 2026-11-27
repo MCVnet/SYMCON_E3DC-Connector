@@ -289,7 +289,7 @@
       "items": [
         {
           "type": "Label",
-          "caption": "0 verwendet den gemeldeten EMS-Wert, sofern er plausibel ist. Bei falscher Geräteangabe die bestätigte maximale Kapazität je Gerät in Wh eintragen."
+          "caption": "0 verwendet plausible Gerätewerte. Eine bestätigte Gesamtkapazität hat im Farmbetrieb Vorrang. Beispiel: 41,3 kWh entsprechen 41300 Wh."
         },
         {
           "type": "NumberSpinner",
@@ -301,6 +301,12 @@
           "type": "NumberSpinner",
           "name": "PeerInstalledCapacityWh",
           "caption": "Zweites Farmgerät (Wh)",
+          "minimum": 0
+        },
+        {
+          "type": "NumberSpinner",
+          "name": "FarmInstalledCapacityWh",
+          "caption": "Farm gesamt (Wh)",
           "minimum": 0
         }
       ]

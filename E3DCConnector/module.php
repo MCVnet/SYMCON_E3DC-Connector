@@ -63,6 +63,7 @@ class E3DCConnector extends IPSModule
         $this->RegisterPropertyBoolean('ExposeDiagnostics', false);
         $this->RegisterPropertyInteger('MasterInstalledCapacityWh', 0);
         $this->RegisterPropertyInteger('PeerInstalledCapacityWh', 0);
+        $this->RegisterPropertyInteger('FarmInstalledCapacityWh', 0);
         $this->RegisterPropertyString('Host', '');
         $this->RegisterPropertyString('OperatingMode', 'auto');
         $this->RegisterPropertyString('ExternalSystems', '[]');
@@ -1175,7 +1176,7 @@ PHP;
                 $farmValid = $this->publishRscpFarmLive($farm);
             }
             if ($farmMode) {
-                $this->publishFarmStorage($live, $second);
+                $this->publishFarmStorage($live, $second, $farm['SOC'] ?? null);
             }
             $this->publishJson('ReadNotes', $notes);
             $valid = isset($live['PV'], $live['Battery'], $live['House'], $live['Grid']);
@@ -1288,25 +1289,31 @@ PHP;
         }
     }
 
-    private function publishFarmStorage(array $master, array $peer): void
+    private function publishFarmStorage(array $master, array $peer, ?int $farmSoc): void
     {
-        $capacityAvailable = $this->hasMasterPortalLogin() && $this->hasFarmPeer()
+        $configuredCapacity = $this->ReadPropertyInteger('FarmInstalledCapacityWh');
+        $deviceCapacitiesAvailable = $this->hasMasterPortalLogin() && $this->hasFarmPeer()
             && $this->getGroupedValue('RscpCapacityValid') && $this->getGroupedValue('SecondRscpCapacityValid');
-        $this->setCapacityVisibility('FarmBatteryCapacity', $capacityAvailable);
-        if (!$capacityAvailable) {
-            return;
+        $capacity = $configuredCapacity / 1000;
+        if ($configuredCapacity <= 0 && $deviceCapacitiesAvailable) {
+            $capacity = $this->getGroupedValue('RscpCapacity') + $this->getGroupedValue('SecondRscpCapacity');
         }
-        $masterCapacity = $this->getGroupedValue('RscpCapacity');
-        $peerCapacity = $this->getGroupedValue('SecondRscpCapacity');
-        $capacity = $masterCapacity + $peerCapacity;
-        $this->setGroupedValue('FarmBatteryCapacity', $capacity);
-        if (!isset($master['SOC'], $peer['SOC'])) {
-            return;
+        $this->setCapacityVisibility('FarmBatteryCapacity', $capacity > 0);
+        if ($capacity > 0) {
+            $this->setGroupedValue('FarmBatteryCapacity', $capacity);
         }
-        $energy = ($masterCapacity * $master['SOC'] + $peerCapacity * $peer['SOC']) / 100;
-        $this->setGroupedValue('FarmBatteryEnergy', round($energy, 3));
-        $this->setGroupedValue('FarmBatterySOC', round(100 * $energy / $capacity, 2));
-        $this->setGroupedValue('FarmBatteryValid', true);
+
+        if ($farmSoc === null && $configuredCapacity <= 0 && $capacity > 0 && isset($master['SOC'], $peer['SOC'])) {
+            $farmSoc = ($this->getGroupedValue('RscpCapacity') * $master['SOC']
+                + $this->getGroupedValue('SecondRscpCapacity') * $peer['SOC']) / $capacity;
+        }
+        if ($farmSoc !== null) {
+            $this->setGroupedValue('FarmBatterySOC', round($farmSoc, 2));
+            $this->setGroupedValue('FarmBatteryValid', true);
+            if ($capacity > 0) {
+                $this->setGroupedValue('FarmBatteryEnergy', round($capacity * $farmSoc / 100, 3));
+            }
+        }
     }
 
     private function readRscpFarmLive(string $host, array &$notes): array
