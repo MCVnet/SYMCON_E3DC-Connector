@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../libs/FarmRscp.php';
+require_once __DIR__ . '/../libs/EnergyFlowTile.php';
 
 final class E3DCInstanceUnavailable extends ErrorException
 {
@@ -156,6 +157,7 @@ class E3DCConnector extends IPSModule
 
     private function maintainGroupedVariables(): void
     {
+        $this->maintainGroupedVariable('EnergyFlowTile', 'Energiefluss', '~HTMLBox', VARIABLETYPE_STRING);
         foreach (self::POWER as $ident => $label) {
             $this->maintainGroupedVariable($ident, $label, '', VARIABLETYPE_INTEGER);
         }
@@ -259,6 +261,8 @@ class E3DCConnector extends IPSModule
             }
         }
         $this->updateOperatingLayout();
+        $this->publishEnergyFlow([], $this->isFarmMode(), $this->ReadPropertyBoolean('Active')
+            ? 'Warte auf Messwerte' : 'Instanz deaktiviert');
         $this->setGroupedValue('AdditionalConsumerValid', false);
         $this->updateAdditionalConsumer(false);
         $this->publishExternalSystems();
@@ -341,6 +345,7 @@ class E3DCConnector extends IPSModule
             'DayForecast', 'DayForecastAvailable', 'DayStart', 'DayBalanceStart',
             'DayPVEstimate', 'DayPVSource', 'RscpSolarStatus', 'RscpDayEnergy'
         ]],
+        'Visualization' => ['Visualisierung', ['EnergyFlowTile']],
         'Identity' => ['Hauptgerät – Geräteinformationen', [
             'Manufacturer', 'Model', 'Serial', 'Firmware', 'ModbusVersion', 'RegisterCount'
         ]],
@@ -548,12 +553,12 @@ class E3DCConnector extends IPSModule
         IPS_SetPosition($system, 30);
         $positions = ['Farm' => 10, 'FarmStorage' => 15, 'Master' => 20, 'Storage' => 25,
             'Second' => 30, 'SecondStorage' => 35, 'Wallbox' => 40, 'Daily' => 50,
-            'Identity' => 60, 'Diagnostics' => 90];
+            'Identity' => 60, 'Visualization' => 80, 'Diagnostics' => 90];
         foreach (self::GROUPS as $group => [$name, $idents]) {
             $ident = 'E3DCGroup' . $group;
             $parent = match ($group) {
                 'Farm', 'FarmStorage' => $farmRoot,
-                'Daily' => $farm ? $farmRoot : $main,
+                'Daily', 'Visualization' => $farm ? $farmRoot : $main,
                 'Diagnostics' => $system,
                 'Master', 'Storage', 'Identity', 'Wallbox' => $main,
                 'Second', 'SecondStorage' => $peer
@@ -1086,7 +1091,11 @@ PHP;
             }
             $this->publishJson('ReadNotes', $notes);
             $valid = isset($live['PV'], $live['Battery'], $live['House'], $live['Grid']);
-            $this->publishDaily($farmValid, $valid ? $this->mergeRscpCore([], $live) : null, isset($farm['WallboxPower']));
+            $meter = $farmValid ? $this->currentAdditionalMeter(time()) : null;
+            $this->publishDaily($farmValid, $valid ? $this->mergeRscpCore([], $live) : null, isset($farm['WallboxPower']), $meter);
+            $complete = $farmMode ? $farmValid : $valid;
+            $this->publishEnergyFlow($farmMode ? $farm : $live, $farmMode,
+                $complete ? 'Aktualisiert um ' . date('H:i:s') : 'Live-Daten unvollständig', $meter);
             if ($valid || $farmValid || $live !== [] || $farm !== [] || $second !== []) {
                 $this->setGroupedValue('LastSuccess', time());
             }
@@ -1110,6 +1119,18 @@ PHP;
         } finally {
             IPS_SemaphoreLeave($lock);
         }
+    }
+
+    private function publishEnergyFlow(array $power, bool $farm, string $status, ?array $meter = null): void
+    {
+        $autarky = isset($power['House'], $power['Grid']) && $power['House'] > 0
+            ? 100 * max(0, $power['House'] - max(0, $power['Grid'])) / $power['House'] : null;
+        $soc = $power['SOC'] ?? null;
+        if ($farm) {
+            $soc = $power !== [] && $this->getGroupedValue('FarmBatteryValid')
+                ? $this->getGroupedValue('FarmBatterySOC') : null;
+        }
+        $this->setGroupedValue('EnergyFlowTile', \E3DCConnector\EnergyFlowTile::render($power, $autarky, $soc, $meter, $status));
     }
 
     private function rscpCredentials(): ?array
@@ -1943,7 +1964,7 @@ PHP;
         $this->setGroupedValue('DayPVSource', 'Aus RSCP-Live-Werten integriert');
     }
 
-    private function publishDaily(bool $valid, ?array $core = null, bool $farmWallboxCurrent = false): void
+    private function publishDaily(bool $valid, ?array $core, bool $farmWallboxCurrent, ?array $meter): void
     {
         $forecastSource = $this->ReadPropertyInteger('ForecastSource');
         $ownForecast = $this->groupedVariableID('DayForecast');
@@ -2004,7 +2025,7 @@ PHP;
             }
         }
         if (!$single && $valid) {
-            $consumer = $this->currentAdditionalMeter($now);
+            $consumer = $meter;
             $this->setGroupedValue('AdditionalConsumerValid', $consumer !== null);
             if ($consumer !== null) {
                 [$index, $power, $source] = $consumer;
